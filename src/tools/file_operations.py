@@ -7,7 +7,7 @@ import os
 import pathlib
 from typing import Optional, List
 import chardet
-from tool_schemas import (
+from ..tool_schemas import (
     ReadFileInput, WriteFileInput, EditFileInput,
     DeleteFileInput, ListDirectoryInput, SearchFilesInput,
     ToolResult

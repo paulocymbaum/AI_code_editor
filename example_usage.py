@@ -5,7 +5,7 @@ Demonstrates various use cases
 
 import asyncio
 import os
-from agent_core import AICodeAgent
+from src.agent_core import AICodeAgent
 
 
 async def example_file_operations():

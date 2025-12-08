@@ -4,7 +4,7 @@ Provides AI-powered code generation and analysis
 """
 
 from typing import Optional, List
-from tool_schemas import (
+from ..tool_schemas import (
     GenerateTestsInput, ExplainCodeInput, SuggestImprovementsInput,
     GenerateDocsInput, ToolResult
 )

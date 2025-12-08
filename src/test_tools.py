@@ -8,8 +8,8 @@ import sys
 from pathlib import Path
 
 # Import tool modules
-from tools import file_operations, javascript_tools
-from tool_schemas import (
+from .tools import file_operations, javascript_tools
+from .tool_schemas import (
     ReadFileInput, WriteFileInput, ListDirectoryInput,
     GenerateReactComponentInput, ToolResult
 )
@@ -86,7 +86,7 @@ async def test_agent_core():
     print("\n=== Testing Agent Core ===")
     
     try:
-        from agent_core import AICodeAgent
+        from .agent_core import AICodeAgent
         import os
         from dotenv import load_dotenv
         

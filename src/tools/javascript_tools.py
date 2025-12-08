@@ -7,7 +7,7 @@ import subprocess
 import json
 import pathlib
 from typing import Optional, List, Dict, Any
-from tool_schemas import ToolResult
+from ..tool_schemas import ToolResult
 from pydantic import BaseModel, Field
 
 

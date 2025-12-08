@@ -6,7 +6,7 @@ Provides AST parsing, symbol finding, and diagnostics
 import ast
 import pathlib
 from typing import Optional, List, Dict, Any
-from tool_schemas import (
+from ..tool_schemas import (
     ParseCodeInput, FindDefinitionsInput, FindReferencesInput,
     GetDiagnosticsInput, AnalyzeDependenciesInput, ToolResult
 )

@@ -6,8 +6,8 @@ Generate a complete React demo application
 import asyncio
 import json
 from pathlib import Path
-from tools import javascript_tools
-from tool_schemas import (
+from src.tools import javascript_tools
+from src.tool_schemas import (
     GenerateReactComponentInput,
     GenerateNextJSPageInput,
     GenerateAPIRouteInput

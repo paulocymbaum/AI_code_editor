@@ -6,7 +6,7 @@ Provides semantic search and context retrieval
 import pathlib
 import subprocess
 from typing import List, Dict, Any
-from tool_schemas import (
+from ..tool_schemas import (
     SemanticSearchInput, GrepSearchInput, GetContextInput,
     SummarizeCodebaseInput, ToolResult
 )

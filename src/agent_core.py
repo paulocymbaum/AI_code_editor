@@ -11,8 +11,8 @@ from enum import Enum
 import time
 
 from groq import AsyncGroq
-from tool_schemas import ToolResult, TOOL_INPUT_SCHEMAS
-import tools
+from .tool_schemas import ToolResult, TOOL_INPUT_SCHEMAS
+from . import tools
 
 
 class ActionType(str, Enum):

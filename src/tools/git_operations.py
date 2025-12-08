@@ -5,7 +5,7 @@ Handles version control operations
 
 import subprocess
 from typing import Optional, List
-from tool_schemas import (
+from ..tool_schemas import (
     GitStatusInput, GitDiffInput, GitCommitInput,
     GitPushInput, CreateBranchInput, ToolResult
 )

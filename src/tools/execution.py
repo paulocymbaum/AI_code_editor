@@ -6,7 +6,7 @@ Handles command execution, testing, and benchmarking
 import subprocess
 import time
 from typing import Optional, Dict
-from tool_schemas import (
+from ..tool_schemas import (
     ExecuteCommandInput, RunTestsInput, ValidateSyntaxInput,
     BenchmarkCodeInput, ToolResult
 )

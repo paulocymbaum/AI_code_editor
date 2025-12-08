@@ -4,8 +4,8 @@ Verify component generation produces correct code
 """
 
 import asyncio
-from tools import javascript_tools
-from tool_schemas import GenerateReactComponentInput
+from .tools import javascript_tools
+from .tool_schemas import GenerateReactComponentInput
 
 
 async def main():

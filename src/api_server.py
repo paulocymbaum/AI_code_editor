@@ -10,8 +10,8 @@ from typing import Optional, Dict, Any
 import os
 import uuid
 
-from agent_core import AICodeAgent
-from memory_manager import MemoryManager
+from .agent_core import AICodeAgent
+from .memory_manager import MemoryManager
 
 
 app = FastAPI(
