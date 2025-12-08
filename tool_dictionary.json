@@ -1,0 +1,320 @@
+{
+  "tools": {
+    "file_operations": {
+      "read_file": {
+        "description": "Read contents of a file with automatic encoding detection",
+        "category": "file_operations",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["file_path", "encoding"],
+        "returns": "file_content"
+      },
+      "write_file": {
+        "description": "Create or overwrite a file with new content",
+        "category": "file_operations",
+        "risk_level": "high",
+        "requires_approval": true,
+        "parameters": ["file_path", "content", "create_dirs"],
+        "returns": "success_status"
+      },
+      "edit_file": {
+        "description": "Apply targeted edits to specific lines or code blocks",
+        "category": "file_operations",
+        "risk_level": "medium",
+        "requires_approval": true,
+        "parameters": ["file_path", "edit_type", "target", "new_content"],
+        "returns": "success_status"
+      },
+      "delete_file": {
+        "description": "Safely delete a file with confirmation",
+        "category": "file_operations",
+        "risk_level": "high",
+        "requires_approval": true,
+        "parameters": ["file_path", "force"],
+        "returns": "success_status"
+      },
+      "list_directory": {
+        "description": "List contents of a directory with optional filtering",
+        "category": "file_operations",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["directory_path", "recursive", "pattern"],
+        "returns": "file_list"
+      },
+      "search_files": {
+        "description": "Fuzzy search for files by name or pattern",
+        "category": "file_operations",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["query", "root_path", "file_types"],
+        "returns": "matching_files"
+      }
+    },
+    "code_analysis": {
+      "parse_code": {
+        "description": "Parse code into AST and extract structure information",
+        "category": "code_analysis",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["file_path", "language"],
+        "returns": "ast_structure"
+      },
+      "find_definitions": {
+        "description": "Locate function, class, or variable definitions",
+        "category": "code_analysis",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["symbol_name", "scope", "file_path"],
+        "returns": "definition_locations"
+      },
+      "find_references": {
+        "description": "Find all usages of a symbol across the codebase",
+        "category": "code_analysis",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["symbol_name", "scope"],
+        "returns": "reference_locations"
+      },
+      "get_diagnostics": {
+        "description": "Run linting and type checking on code",
+        "category": "code_analysis",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["file_path", "check_types", "check_style"],
+        "returns": "diagnostic_results"
+      },
+      "analyze_dependencies": {
+        "description": "Analyze and visualize code dependencies",
+        "category": "code_analysis",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["root_path", "depth"],
+        "returns": "dependency_graph"
+      }
+    },
+    "execution": {
+      "execute_command": {
+        "description": "Execute shell commands with safety constraints",
+        "category": "execution",
+        "risk_level": "high",
+        "requires_approval": true,
+        "parameters": ["command", "working_dir", "timeout", "env_vars"],
+        "returns": "command_output"
+      },
+      "run_tests": {
+        "description": "Execute test suites with specified framework",
+        "category": "execution",
+        "risk_level": "medium",
+        "requires_approval": false,
+        "parameters": ["test_path", "framework", "coverage"],
+        "returns": "test_results"
+      },
+      "validate_syntax": {
+        "description": "Quick syntax validation without full execution",
+        "category": "execution",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["file_path", "language"],
+        "returns": "validation_result"
+      },
+      "benchmark_code": {
+        "description": "Profile code performance and resource usage",
+        "category": "execution",
+        "risk_level": "medium",
+        "requires_approval": false,
+        "parameters": ["file_path", "function_name", "iterations"],
+        "returns": "benchmark_results"
+      }
+    },
+    "git_operations": {
+      "git_status": {
+        "description": "Check current repository status and changes",
+        "category": "git_operations",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["repo_path"],
+        "returns": "status_info"
+      },
+      "git_diff": {
+        "description": "View differences between commits or working tree",
+        "category": "git_operations",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["repo_path", "target", "staged"],
+        "returns": "diff_output"
+      },
+      "git_commit": {
+        "description": "Commit staged changes with message",
+        "category": "git_operations",
+        "risk_level": "medium",
+        "requires_approval": true,
+        "parameters": ["repo_path", "message", "files"],
+        "returns": "commit_hash"
+      },
+      "git_push": {
+        "description": "Push commits to remote repository",
+        "category": "git_operations",
+        "risk_level": "high",
+        "requires_approval": true,
+        "parameters": ["repo_path", "remote", "branch"],
+        "returns": "push_result"
+      },
+      "create_branch": {
+        "description": "Create and optionally checkout a new branch",
+        "category": "git_operations",
+        "risk_level": "medium",
+        "requires_approval": false,
+        "parameters": ["repo_path", "branch_name", "checkout"],
+        "returns": "branch_info"
+      }
+    },
+    "context_search": {
+      "semantic_search": {
+        "description": "Vector-based semantic search across codebase",
+        "category": "context_search",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["query", "top_k", "file_types"],
+        "returns": "search_results"
+      },
+      "grep_search": {
+        "description": "Fast text-based search with regex support",
+        "category": "context_search",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["pattern", "path", "case_sensitive"],
+        "returns": "matches"
+      },
+      "get_context": {
+        "description": "Retrieve relevant code context for a task",
+        "category": "context_search",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["task_description", "max_tokens"],
+        "returns": "context_data"
+      },
+      "summarize_codebase": {
+        "description": "Generate high-level overview of codebase structure",
+        "category": "context_search",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["root_path", "detail_level"],
+        "returns": "summary"
+      }
+    },
+    "ai_assisted": {
+      "generate_tests": {
+        "description": "Auto-generate test cases for given code",
+        "category": "ai_assisted",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["file_path", "function_name", "framework"],
+        "returns": "test_code"
+      },
+      "explain_code": {
+        "description": "Generate natural language explanation of code",
+        "category": "ai_assisted",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["code_snippet", "detail_level"],
+        "returns": "explanation"
+      },
+      "suggest_improvements": {
+        "description": "Analyze code and suggest refactoring opportunities",
+        "category": "ai_assisted",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["file_path", "focus_areas"],
+        "returns": "suggestions"
+      },
+      "generate_docs": {
+        "description": "Generate documentation from code and comments",
+        "category": "ai_assisted",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["file_path", "format", "include_examples"],
+        "returns": "documentation"
+      }
+    }
+  },
+  "metadata": {
+    "version": "1.0.0",
+    "total_tools": 30,
+    "last_updated": "2025-12-07"
+  }
+}
+,
+    "javascript_react": {
+      "generate_react_component": {
+        "description": "Generate React functional or class components with TypeScript",
+        "category": "javascript_react",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["component_name", "component_type", "use_typescript", "props", "hooks", "styling", "output_dir"],
+        "returns": "component_code"
+      },
+      "generate_nextjs_page": {
+        "description": "Generate Next.js pages with data fetching strategies",
+        "category": "javascript_react",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["page_name", "route", "use_typescript", "data_fetching", "layout", "output_dir"],
+        "returns": "page_code"
+      },
+      "generate_api_route": {
+        "description": "Generate API routes for Next.js, Express, or Fastify",
+        "category": "javascript_react",
+        "risk_level": "medium",
+        "requires_approval": false,
+        "parameters": ["route_name", "method", "use_typescript", "framework", "output_dir"],
+        "returns": "api_code"
+      },
+      "typescript_check": {
+        "description": "Run TypeScript type checking on files",
+        "category": "javascript_react",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["file_path", "project_root", "strict"],
+        "returns": "type_errors"
+      },
+      "eslint_check": {
+        "description": "Run ESLint with optional auto-fix",
+        "category": "javascript_react",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["file_path", "fix", "project_root"],
+        "returns": "lint_results"
+      },
+      "prettier_format": {
+        "description": "Format code with Prettier",
+        "category": "javascript_react",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["file_path", "write"],
+        "returns": "formatted_code"
+      },
+      "npm_command": {
+        "description": "Execute NPM commands (install, run, test, etc.)",
+        "category": "javascript_react",
+        "risk_level": "medium",
+        "requires_approval": true,
+        "parameters": ["command", "args", "working_dir"],
+        "returns": "command_output"
+      },
+      "generate_type_definitions": {
+        "description": "Generate TypeScript type definitions from JSON or API responses",
+        "category": "javascript_react",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": ["source", "type_name", "output_file"],
+        "returns": "type_definition"
+      }
+    }
+  },
+  "metadata": {
+    "version": "2.0.0",
+    "total_tools": 38,
+    "last_updated": "2025-12-07",
+    "target_languages": ["JavaScript", "TypeScript", "React", "Next.js"]
+  }
+}
