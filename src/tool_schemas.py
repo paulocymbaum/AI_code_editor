@@ -363,7 +363,15 @@ class GenerateReactComponentInput(BaseModel):
     use_typescript: bool = Field(default=True, description="Generate TypeScript")
     props: Optional[List[Dict[str, str]]] = Field(default=None, description="Component props")
     hooks: Optional[List[str]] = Field(default=None, description="React hooks to use")
-    styling: str = Field(default="css-modules", description="css-modules, styled-components, tailwind")
+    styling: str = Field(default="tailwind", description="tailwind, css-modules, styled-components")
+    component_pattern: Optional[str] = Field(
+        default=None, 
+        description="Component pattern: card, button, form, modal, list, hero, feature, pricing, or custom"
+    )
+    variant: Optional[str] = Field(
+        default="primary",
+        description="Style variant: primary, secondary, outline, ghost, success, warning, error"
+    )
     output_dir: str = Field(default="./src/components", description="Output directory")
 
 
@@ -420,6 +428,27 @@ class GenerateTypeDefinitionsInput(BaseModel):
     output_file: str = Field(..., description="Output file path")
 
 
+# Import page management schemas
+from .tools.page_management import (
+    UpdatePageImportsInput,
+    GeneratePageWithComponentsInput,
+    OrganizeProjectFilesInput,
+    CleanDemoFolderInput
+)
+
+# Import design system schemas
+from .tools.design_system import GenerateDesignSystemInput
+
+# Import schemas from tool modules (at end to avoid circular imports)
+from .tools.design_system import GenerateDesignSystemInput
+from .tools.page_management import (
+    UpdatePageImportsInput,
+    GeneratePageWithComponentsInput,
+    OrganizeProjectFilesInput,
+    CleanDemoFolderInput
+)
+from .tools.redux_tools import GenerateReduxSetupInput
+
 # Update TOOL_INPUT_SCHEMAS registry
 TOOL_INPUT_SCHEMAS.update({
     # JavaScript/TypeScript/React
@@ -431,4 +460,13 @@ TOOL_INPUT_SCHEMAS.update({
     "prettier_format": PrettierFormatInput,
     "npm_command": NPMCommandInput,
     "generate_type_definitions": GenerateTypeDefinitionsInput,
+    # Page Management
+    "update_page_imports": UpdatePageImportsInput,
+    "generate_page_with_components": GeneratePageWithComponentsInput,
+    "organize_project_files": OrganizeProjectFilesInput,
+    "clean_demo_folder": CleanDemoFolderInput,
+    # Design System
+    "generate_design_system": GenerateDesignSystemInput,
+    # Redux State Management
+    "generate_redux_setup": GenerateReduxSetupInput,
 })

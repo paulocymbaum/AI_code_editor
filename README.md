@@ -4,14 +4,17 @@ A robust, production-ready AI coding agent powered by Groq language models, **sp
 
 ## Features
 
-- **React/TypeScript Focus**: Generate React components, Next.js pages, API routes, and TypeScript types
-- **Fast Inference**: Powered by Groq's LPU for sub-second response times
-- **Modular Tool System**: 38+ tools including specialized React/TS tools
-- **Multi-Tier Memory**: Redis (short-term), ChromaDB (vector), PostgreSQL (long-term)
-- **Task Loop Management**: Intelligent task planning and execution
-- **Code Quality**: Built-in TypeScript checking, ESLint, and Prettier
-- **REST API**: FastAPI-based API for easy integration
-- **Async Architecture**: High-performance async/await throughout
+- **🎨 Professional Design System**: Generate complete design systems with 282 design tokens, Tailwind config, and component patterns
+- **⚛️ React/TypeScript Focus**: Generate React components with 8 pre-built patterns (button, card, form, modal, hero, pricing, etc.)
+- **🌓 Dark Mode Support**: Auto-generated dark mode with proper color overrides and accessibility
+- **♿ Accessibility Built-in**: WCAG AA compliant with focus states, reduced motion, and semantic HTML
+- **⚡ Fast Inference**: Powered by Groq's LPU for sub-second response times
+- **🛠️ Modular Tool System**: 40+ tools including specialized React/TS and design system tools
+- **💾 Multi-Tier Memory**: Redis (short-term), ChromaDB (vector), PostgreSQL (long-term)
+- **🎯 Task Loop Management**: Intelligent task planning and execution
+- **✅ Code Quality**: Built-in TypeScript checking, ESLint, and Prettier
+- **🚀 REST API**: FastAPI-based API for easy integration
+- **⚡ Async Architecture**: High-performance async/await throughout
 
 ## Architecture
 
@@ -143,8 +146,21 @@ curl -X POST http://localhost:8000/execute \
 
 ## Tool Categories
 
-### React/TypeScript/JavaScript (NEW!)
-- **generate_react_component**: Create React components (functional/class, TypeScript)
+### 🎨 Design System (NEW! ⭐)
+- **generate_design_system**: Create complete design systems with 282 design tokens
+  - Tailwind configuration with custom colors, typography, spacing
+  - Global CSS with component patterns (15+ components)
+  - Dark mode support with proper overrides
+  - Accessibility features built-in (WCAG AA)
+  - Auto-generated documentation
+
+### ⚛️ React/TypeScript/JavaScript (ENHANCED! ⭐)
+- **generate_react_component**: Create React components with design system patterns
+  - 8 pre-built patterns: button, card, form, modal, list, hero, feature, pricing
+  - 7 style variants: primary, secondary, outline, ghost, success, warning, error
+  - Tailwind classes with design tokens or CSS modules
+  - TypeScript support with proper types
+  - Dark mode variants included
 - **generate_nextjs_page**: Generate Next.js pages with SSR/SSG/ISR
 - **generate_api_route**: Create API routes (Next.js, Express, Fastify)
 - **typescript_check**: Run TypeScript type checking
@@ -209,6 +225,41 @@ ENABLE_SAFETY_CHECKS=true # Enable safety validations
 - Audit logs and analytics
 - Permanent storage
 
+## Testing
+
+### Health Check System
+
+The project includes a comprehensive health check system to validate all components:
+
+```bash
+# Run all health checks
+python3 tests/health_check/run_health_check.py
+
+# Quick mode (faster feedback)
+python3 tests/health_check/run_health_check.py --quick
+
+# Verbose output
+python3 tests/health_check/run_health_check.py --verbose
+```
+
+**What gets tested:**
+- ✅ Tool schemas validation
+- ✅ Tool registry and imports
+- ✅ Tool execution (file ops, design system, components)
+- ✅ Agent core functionality
+- ✅ Design system generation
+- ✅ End-to-end integration
+
+**Test suites:**
+- `test_tool_schemas.py` - Schema validation
+- `test_tool_registry.py` - Tool imports and registration
+- `test_tool_execution.py` - Tool execution
+- `test_agent_core.py` - Agent functionality
+- `test_design_system.py` - Design system tests
+- `test_e2e_design_system.py` - Integration tests
+
+See **[TESTING.md](TESTING.md)** for comprehensive testing documentation.
+
 ## Development
 
 ### Project Structure
@@ -229,8 +280,11 @@ ENABLE_SAFETY_CHECKS=true # Enable safety validations
 │   ├── git_operations.py
 │   ├── context_search.py
 │   └── ai_assisted.py
+├── tests/                 # Test suites
+│   └── health_check/     # Health check system
 ├── requirements.txt       # Python dependencies
-└── README.md
+├── README.md             # This file
+└── TESTING.md            # Testing documentation
 ```
 
 ### Adding New Tools
@@ -352,6 +406,7 @@ See `examples/react_examples.py` for comprehensive examples:
 
 ## Documentation
 
+- **[TESTING.md](TESTING.md)** - Comprehensive testing guide and health check system
 - **REACT_GUIDE.md** - Complete guide for React/TypeScript code generation
 - **SYSTEM_DESIGN.md** - System architecture and design decisions
 - **IMPLEMENTATION_GUIDE.md** - Development and deployment guide

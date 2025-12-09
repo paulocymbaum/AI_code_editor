@@ -1,26 +1,48 @@
+'use client';
+
 import React from 'react';
-import ProductCard from '../components/ProductCard';
+import { Provider } from 'react-redux';
+import { store } from '/Users/paulocymbaum/Documents/Projects/AI_code_editor/demo/src/store/store';
+import ChatSidebar from '/Users/paulocymbaum/Documents/Projects/AI_code_editor/demo/src/components/ChatSidebar';
+import ChatHeader from '/Users/paulocymbaum/Documents/Projects/AI_code_editor/demo/src/components/ChatHeader';
+import ChatMessageList from '/Users/paulocymbaum/Documents/Projects/AI_code_editor/demo/src/components/ChatMessageList';
+import ChatInput from '/Users/paulocymbaum/Documents/Projects/AI_code_editor/demo/src/components/ChatInput';
+import ChatFooter from '/Users/paulocymbaum/Documents/Projects/AI_code_editor/demo/src/components/ChatFooter';
 
-const products = [
-  { name: 'Laptop', price: 99, image: 'https://example.com/laptop.jpg', description: 'This is a laptop' },
-  { name: 'Phone', price: 99, image: 'https://example.com/phone.jpg', description: 'This is a phone' },
-  { name: 'Tablet', price: 99, image: 'https://example.com/tablet.jpg', description: 'This is a tablet' },
-  { name: 'Watch', price: 99, image: 'https://example.com/watch.jpg', description: 'This is a watch' },
-  { name: 'Headphones', price: 99, image: 'https://example.com/headphones.jpg', description: 'These are headphones' },
-  { name: 'Camera', price: 99, image: 'https://example.com/camera.jpg', description: 'This is a camera' }
-];
-
-const Page = () => {
+const ChatPage = () => {
   return (
-    <div className="container mx-auto p-4 pt-6 mt-10">
-      <h1 className="text-3xl font-bold">Products Catalog</h1>
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-4">
-        {products.map((product) => (
-          <ProductCard key={product.name} product={product} />
-        ))}
-      </div>
-    </div>
+    <Provider store={store}>
+      <div className="flex h-screen bg-neutral-50">
+            {/* Sidebar - Hidden on mobile, visible on md+ */}
+            <aside className="hidden md:flex md:w-64 lg:w-80 flex-col border-r border-neutral-200 bg-white">
+              <ChatSidebar />
+            </aside>
+
+            {/* Main Content */}
+            <main className="flex-1 flex flex-col overflow-hidden">
+              {/* Header */}
+              <header className="border-b border-neutral-200 bg-white p-4">
+                <ChatHeader />
+              </header>
+
+              {/* Messages Area - Scrollable */}
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+                <ChatMessageList />
+              </div>
+
+              {/* Input Area */}
+              <div className="border-t border-neutral-200 bg-white p-4">
+                <ChatInput />
+              </div>
+
+              {/* Footer */}
+              <footer className="border-t border-neutral-200 bg-neutral-50 p-2 sm:p-3">
+                <ChatFooter />
+              </footer>
+            </main>
+          </div>
+    </Provider>
   );
 };
 
-export default Page;
+export default ChatPage;

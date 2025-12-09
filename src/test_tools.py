@@ -8,11 +8,12 @@ import sys
 from pathlib import Path
 
 # Import tool modules
-from .tools import file_operations, javascript_tools
+from .tools import file_operations, javascript_tools, redux_tools
 from .tool_schemas import (
     ReadFileInput, WriteFileInput, ListDirectoryInput,
     GenerateReactComponentInput, ToolResult
 )
+from .tools.redux_tools import GenerateReduxSetupInput, ComponentSchema
 
 
 async def test_file_operations():
@@ -81,6 +82,63 @@ async def test_javascript_tools():
     return result.success
 
 
+async def test_redux_tools():
+    """Test Redux state management tools"""
+    print("\n=== Testing Redux Tools ===")
+    
+    # Test generate_redux_setup
+    print("Testing generate_redux_setup...")
+    redux_params = GenerateReduxSetupInput(
+        components=[
+            ComponentSchema(
+                name="ChatMessageList",
+                props={
+                    "items": "Array<{title: string; description: string}>",
+                    "isLoading": "boolean"
+                }
+            ),
+            ComponentSchema(
+                name="ChatSidebar",
+                props={
+                    "conversations": "Array<{id: string; name: string}>",
+                    "activeId": "string"
+                }
+            )
+        ],
+        output_dir="./test_redux_store",
+        store_name="store"
+    )
+    result = await redux_tools.generate_redux_setup(redux_params)
+    print(f"  generate_redux_setup: {'✓ PASS' if result.success else '✗ FAIL'}")
+    if result.success:
+        print(f"    Store dir: {result.data['store_dir']}")
+        print(f"    Files created: {result.data['files_created']}")
+        print(f"    Slices count: {result.data['slices_count']}")
+        
+        # Verify files exist
+        from pathlib import Path
+        store_dir = Path(result.data['store_dir'])
+        if store_dir.exists():
+            print(f"    ✓ Store directory created")
+            if (store_dir / "store.ts").exists():
+                print(f"    ✓ store.ts exists")
+            if (store_dir / "hooks.ts").exists():
+                print(f"    ✓ hooks.ts exists")
+            if (store_dir / "chatmessagelistSlice.ts").exists():
+                print(f"    ✓ chatmessagelistSlice.ts exists")
+            if (store_dir / "chatsidebarSlice.ts").exists():
+                print(f"    ✓ chatsidebarSlice.ts exists")
+    else:
+        print(f"    Error: {result.error}")
+    
+    # Cleanup
+    import shutil
+    if Path("test_redux_store").exists():
+        shutil.rmtree("test_redux_store")
+    
+    return result.success
+
+
 async def test_agent_core():
     """Test agent core can be initialized"""
     print("\n=== Testing Agent Core ===")
@@ -121,6 +179,7 @@ async def main():
     # Run tests
     results.append(await test_file_operations())
     results.append(await test_javascript_tools())
+    results.append(await test_redux_tools())
     results.append(await test_agent_core())
     
     # Summary

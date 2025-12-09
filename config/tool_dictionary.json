@@ -235,15 +235,7 @@
         "parameters": ["file_path", "format", "include_examples"],
         "returns": "documentation"
       }
-    }
-  },
-  "metadata": {
-    "version": "1.0.0",
-    "total_tools": 30,
-    "last_updated": "2025-12-07"
-  }
-}
-,
+    },
     "javascript_react": {
       "generate_react_component": {
         "description": "Generate React functional or class components with TypeScript",
@@ -251,7 +243,13 @@
         "risk_level": "low",
         "requires_approval": false,
         "parameters": ["component_name", "component_type", "use_typescript", "props", "hooks", "styling", "output_dir"],
-        "returns": "component_code"
+        "returns": "component_code",
+        "guidelines": {
+          "pattern_selection": "CRITICAL: Choose component_pattern based on PURPOSE, not just name. Pattern determines the HTML structure and semantic meaning:\n  • sidebar: Navigation panels with menu items (ChatSidebar, UserSidebar, NavPanel)\n  • header: Top bars with logo, search, actions (AppHeader, ChatHeader, DashboardHeader)\n  • footer: Bottom bars with links and info (AppFooter, ChatFooter, PageFooter)\n  • messages: Chat message displays with bubbles (ChatMessageList, MessageThread, ConversationView)\n  • input: Message/chat input fields with actions (ChatInput, MessageInput, CommentBox)\n  • form: Data entry forms with fields and validation (LoginForm, SignupForm, ProfileForm)\n  • list: Vertical lists of items (UserList, ProductList, NotificationList)\n  • card: Information cards with title/description (ProductCard, ProfileCard, StatCard)\n  • button: Action buttons (CTAButton, SubmitButton, ActionButton)\n  • hero: Large hero sections (HeroSection, Banner)\n  • modal: Overlay dialogs (ConfirmModal, EditModal)\n  • feature: Feature showcases (FeatureCard, BenefitCard)\n  • pricing: Pricing cards (PricingCard, PlanCard)",
+          "naming_convention": "Use PascalCase for component names. Name should reflect purpose: ChatSidebar (sidebar pattern), ChatInput (input pattern), UserList (list pattern), LoginForm (form pattern).",
+          "responsive_requirements": "ALL components must be responsive. Use Tailwind breakpoints: base styles for mobile, then sm:, md:, lg:, xl: for larger screens. Hidden elements on mobile should use 'hidden md:flex' or similar.",
+          "common_mistakes": "DON'T use 'card' pattern for everything! ChatSidebar is NOT a card, it's a sidebar. ChatInput is NOT a card, it's an input. Choose pattern based on semantic meaning and UI structure, not just because it's a component."
+        }
       },
       "generate_nextjs_page": {
         "description": "Generate Next.js pages with data fetching strategies",
@@ -309,12 +307,160 @@
         "parameters": ["source", "type_name", "output_file"],
         "returns": "type_definition"
       }
+    },
+    "design_system": {
+      "generate_design_system": {
+        "description": "⭐ FIRST STEP: Generate complete design system with Tailwind config, global CSS, design tokens, layout.tsx and documentation. ALWAYS CALL THIS FIRST when creating a new Next.js project. Creates: tailwind.config.js, src/app/globals.css, src/app/layout.tsx, and DESIGN_SYSTEM.md with 282 professional design tokens including colors, typography, spacing, shadows, animations, and component patterns.",
+        "category": "design_system",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": {
+          "project_path": "Root path of the project (required)",
+          "framework": "Framework: nextjs, react, vite (default: nextjs)",
+          "include_layout": "Generate Next.js layout.tsx file (default: true)",
+          "include_dark_mode": "Include dark mode support (default: true)",
+          "include_component_patterns": "Generate component pattern CSS (default: true)",
+          "include_docs": "Generate documentation (default: true)",
+          "css_output_path": "Custom CSS output path (default: src/app/globals.css for Next.js)",
+          "tailwind_config_path": "Custom Tailwind config path (default: ./tailwind.config.js)"
+        },
+        "returns": "Design system files created (tailwind.config.js, globals.css, layout.tsx, DESIGN_SYSTEM.md)",
+        "example": {
+          "project_path": "./demo",
+          "framework": "nextjs",
+          "include_layout": true,
+          "include_dark_mode": true
+        },
+        "usage_notes": "⚠️ IMPORTANT: Call this BEFORE generating any components or pages. It sets up the entire styling foundation."
+      }
+    },
+    "page_management": {
+      "update_page_imports": {
+        "description": "Automatically update imports in a page file. Calculates relative paths, avoids duplicates, preserves existing code.",
+        "category": "page_management",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": {
+          "page_path": "Path to the page file to update (required)",
+          "components": "List of components with 'name' and 'path' keys (required)",
+          "replace_all": "Replace all imports or add to existing (default: false)"
+        },
+        "returns": "Updated page file with new imports",
+        "example": {
+          "page_path": "./demo/src/app/page.tsx",
+          "components": [
+            {"name": "ProductCard", "path": "./demo/src/components/ProductCard.tsx"}
+          ]
+        }
+      },
+      "generate_page_with_components": {
+        "description": "⭐ MAIN PAGE GENERATOR: Generate a complete page with multiple components automatically. This is the BEST tool for creating pages - it generates all components first (or reuses existing ones), then creates the page with proper imports and RESPONSIVE layout. Automatically enables Redux state management with mock data. Also creates missing Next.js project files (package.json, tsconfig.json, etc.) if needed. Use this instead of manually calling generate_react_component multiple times.",
+        "category": "page_management",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": {
+          "page_name": "REQUIRED: Name of the page (e.g., 'dashboard', 'products')",
+          "page_path": "REQUIRED: Full path where page file should be created (e.g., './demo/src/app/page.tsx')",
+          "components": "REQUIRED: Array of component specs, each with: {'name': 'ComponentName', 'pattern': 'card|button|hero|form|modal|list', 'variant': 'primary|secondary', 'props_data': {...}}",
+          "title": "OPTIONAL: Page title for display",
+          "description": "OPTIONAL: Page description",
+          "layout_type": "OPTIONAL: Layout type - 'chat' (sidebar+main+footer), 'dashboard' (header+grid), 'landing' (full-width sections), 'app' (sidebar+content), or 'grid' (default 3-column responsive grid). Automatically generates responsive layouts for web, tablet, and mobile."
+        },
+        "returns": "Complete page with all components generated and imported, plus project config files if missing",
+        "example": {
+          "page_name": "dashboard",
+          "page_path": "./demo/src/app/page.tsx",
+          "components": [
+            {
+              "name": "HeroSection",
+              "pattern": "hero",
+              "variant": "primary"
+            },
+            {
+              "name": "FeatureCard",
+              "pattern": "card",
+              "variant": "primary"
+            },
+            {
+              "name": "PricingCard",
+              "pattern": "card",
+              "variant": "secondary"
+            },
+            {
+              "name": "CTAButton",
+              "pattern": "button",
+              "variant": "primary"
+            }
+          ],
+          "title": "Dashboard",
+          "description": "Welcome to your dashboard",
+          "layout_type": "dashboard"
+        },
+        "usage_notes": "⚠️ IMPORTANT: Always provide BOTH page_name AND page_path. Component pattern must be one of: card, button, hero, form, modal, list, feature, pricing. Use layout_type to control page structure: 'chat' for messaging apps, 'dashboard' for analytics, 'landing' for marketing pages, 'app' for standard web apps, or 'grid' for simple layouts. All layouts are RESPONSIVE (mobile, tablet, desktop). This tool automatically creates package.json, enables Redux with mock data, and generates responsive layouts.",
+        "guidelines": {
+          "pattern_is_mandatory": "CRITICAL: Every component in the 'components' array MUST have a 'pattern' field. No defaults are provided. If pattern is missing, generation will FAIL. Choose pattern based on component's semantic purpose.",
+          "pattern_selection_by_layout": {
+            "chat": "For chat layouts, use: sidebar (navigation/conversations), header (user info/status), messages (message display), input (message input), footer (status/info)",
+            "dashboard": "For dashboard layouts, use: header (page title/actions), card (metrics/stats), list (data lists), form (filters/settings)",
+            "landing": "For landing pages, use: hero (main banner), feature (benefits), pricing (plans), button (CTAs), card (testimonials)",
+            "app": "For app layouts, use: sidebar (main nav), header (top bar), card (content cards), form (data entry), list (item lists)"
+          },
+          "component_examples": "CORRECT examples:\n  • {'name': 'ChatSidebar', 'pattern': 'sidebar'} - NOT 'card'\n  • {'name': 'ChatInput', 'pattern': 'input'} - NOT 'form' or 'card'\n  • {'name': 'MessageList', 'pattern': 'messages'} - NOT 'list' or 'card'\n  • {'name': 'AppHeader', 'pattern': 'header'} - NOT 'card'\n  • {'name': 'LoginForm', 'pattern': 'form'} - NOT 'card'\n  • {'name': 'ProductCard', 'pattern': 'card'} - This IS correct for cards",
+          "layout_component_mapping": "Match layout to appropriate components:\n  • chat layout needs: sidebar, header, messages, input, footer patterns\n  • dashboard layout needs: header, card (for metrics), list patterns\n  • landing layout needs: hero, feature, pricing, button patterns\n  • app layout needs: sidebar, header, card, form, list patterns"
+        }
+      },
+      "organize_project_files": {
+        "description": "Organize project files by type into structured directories. Categorizes by extension (components, styles, types, utils, tests, config).",
+        "category": "page_management",
+        "risk_level": "medium",
+        "requires_approval": true,
+        "parameters": {
+          "source_dir": "Source directory to organize (required)",
+          "target_base_dir": "Target base directory for organized files (required)",
+          "create_subdirs": "Create subdirectories by file type (default: true)",
+          "clean_source": "Remove files from source after moving (default: false)"
+        },
+        "returns": "Organized file structure with categorization report"
+      },
+      "clean_demo_folder": {
+        "description": "Clean demo folder keeping only essential files. Archives removed files optionally.",
+        "category": "page_management",
+        "risk_level": "high",
+        "requires_approval": true,
+        "parameters": {
+          "demo_dir": "Demo directory path (default: ./demo)",
+          "keep_patterns": "File patterns to keep (default: config files)",
+          "archive_dir": "Archive directory for moved files (optional)"
+        },
+        "returns": "Cleanup report with archived files"
+      }
+    },
+    "redux_state_management": {
+      "generate_redux_setup": {
+        "description": "Generate Redux Toolkit store setup with slices and mock data. Creates Redux store configuration, typed hooks, and slice files with realistic mock data based on component prop schemas. Call this after generating components to create state management.",
+        "category": "redux_state_management",
+        "risk_level": "low",
+        "requires_approval": false,
+        "parameters": {
+          "components": "List of component schemas with props (required)",
+          "output_dir": "Directory for Redux files (default: src/store)",
+          "store_name": "Name of store file (default: store)"
+        },
+        "returns": "Redux store files created (store.ts, hooks.ts, *Slice.ts)",
+        "example": {
+          "components": [{"name": "ChatMessageList", "props": {"items": "Array<{title: string; description: string}>"}}],
+          "output_dir": "./demo/src/store",
+          "store_name": "store"
+        },
+        "usage_notes": "Call after component generation. Automatically generates mock data based on prop types."
+      }
     }
   },
   "metadata": {
-    "version": "2.0.0",
-    "total_tools": 38,
-    "last_updated": "2025-12-07",
-    "target_languages": ["JavaScript", "TypeScript", "React", "Next.js"]
+    "version": "2.2.0",
+    "total_tools": 44,
+    "last_updated": "2025-12-08",
+    "target_languages": ["JavaScript", "TypeScript", "React", "Next.js"],
+    "new_categories": ["design_system", "page_management", "redux_state_management"]
   }
 }
