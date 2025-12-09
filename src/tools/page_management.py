@@ -207,17 +207,92 @@ def _generate_layout(layout_type: str, components: List[Dict[str, str]], title: 
     </div>'''
     
     elif layout_type == "dashboard":
-        # Dashboard layout: Header + Grid
-        header = get_comp('header') or (components[0]['tag'] if len(components) > 0 else '')
-        remaining = [c['tag'] for c in components[1:]] if len(components) > 1 else []
-        remaining_html = '\n            '.join(remaining)
+        # Professional Dashboard layout: Sidebar + Main area (Header + Stats + Tabs + Footer)
+        sidebar = get_comp('sidebar')
+        header = get_comp('header')
+        footer = get_comp('footer')
+        tabs = get_comp('tab') or get_comp('navigation')
         
-        return f'''<div className="min-h-screen bg-neutral-50">
-      <header className="bg-white border-b border-neutral-200 sticky top-0 z-10">
+        # Collect stat cards and other components
+        cards = [c['tag'] for c in components if 'card' in c['name'].lower() or 'stat' in c['name'].lower()]
+        other_comps = [c['tag'] for c in components if c['tag'] not in [sidebar, header, footer, tabs] and c['tag'] not in cards]
+        
+        cards_html = '\n              '.join(cards) if cards else ''
+        other_html = '\n            '.join(other_comps) if other_comps else ''
+        
+        # Build layout with or without sidebar
+        if sidebar:
+            return f'''<div className="flex min-h-screen bg-neutral-50">
+      {{/* Sidebar - Collapsible on mobile */}}
+      <aside className="hidden lg:flex lg:w-64 xl:w-72 flex-col border-r border-neutral-200 bg-white">
+        {sidebar}
+      </aside>
+      
+      {{/* Main Content Area */}}
+      <main className="flex-1 flex flex-col overflow-hidden">
+        {{/* Header - Sticky */}}
+        {('<header className="bg-white border-b border-neutral-200 sticky top-0 z-10 px-4 sm:px-6 lg:px-8 py-4">' + f"""
+          {header}
+        </header>""") if header else ''}
+        
+        {{/* Dashboard Content - Scrollable */}}
+        <div className="flex-1 overflow-y-auto">
+          <div className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+            {{/* Page Title */}}
+            <div className="mb-6 sm:mb-8">
+              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-neutral-900 mb-2">
+                {title}
+              </h1>
+              <p className="text-sm sm:text-base text-neutral-600">
+                {description}
+              </p>
+            </div>
+            
+            {{/* Stats Grid */}}
+            {('<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 mb-8">' + f"""
+              {cards_html}
+            </div>""") if cards else ''}
+            
+            {{/* Tab Navigation */}}
+            {('<div className="mb-6">' + f"""
+              {tabs}
+            </div>""") if tabs else ''}
+            
+            {{/* Other Components */}}
+            {('<div className="space-y-6">' + f"""
+              {other_html}
+            </div>""") if other_html else ''}
+          </div>
+        </div>
+        
+        {{/* Footer */}}
+        {('<footer className="border-t border-neutral-200 bg-white px-4 sm:px-6 lg:px-8 py-4">' + f"""
+          {footer}
+        </footer>""") if footer else ''}
+      </main>
+    </div>'''
+        else:
+            # No sidebar - just header and grid
+            header_html = ('<header className="bg-white border-b border-neutral-200 sticky top-0 z-10">' + f"""
         <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-4">
           {header}
         </div>
-      </header>
+      </header>""") if header else ''
+            
+            cards_section = ('<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 mb-8">' + f"""
+            {cards_html}
+        </div>""") if cards else ''
+            
+            tabs_section = ('<div className="mb-6">' + f"""
+            {tabs}
+        </div>""") if tabs else ''
+            
+            other_section = ('<div className="space-y-6">' + f"""
+            {other_html}
+        </div>""") if other_html else ''
+            
+            return f'''<div className="min-h-screen bg-neutral-50">
+      {header_html}
       
       <main className="container mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 lg:py-12">
         <div className="mb-8 sm:mb-12">
@@ -229,10 +304,18 @@ def _generate_layout(layout_type: str, components: List[Dict[str, str]], title: 
           </p>
         </div>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-            {remaining_html}
-        </div>
+        {cards_section}
+        
+        {tabs_section}
+        
+        {other_section}
       </main>
+      
+      {('<footer className="border-t border-neutral-200 bg-neutral-50 py-8">' + f"""
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+          {footer}
+        </div>
+      </footer>""") if footer else ''}
     </div>'''
     
     elif layout_type == "landing":

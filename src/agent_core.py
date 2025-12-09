@@ -5,14 +5,54 @@ Main execution loop and task management
 
 import asyncio
 import json
+import logging
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from enum import Enum
 import time
+from pathlib import Path
+import os
+
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()
 
 from groq import AsyncGroq
 from .tool_schemas import ToolResult, TOOL_INPUT_SCHEMAS
 from . import tools
+
+# Configure logger with detailed formatting
+logger = logging.getLogger(__name__)
+
+def setup_logging(log_file: str = "agent_execution.log", level: int = logging.INFO):
+    """Setup detailed logging to both file and console"""
+    
+    # Create formatter
+    formatter = logging.Formatter(
+        '%(asctime)s | %(levelname)-8s | %(message)s',
+        datefmt='%H:%M:%S'
+    )
+    
+    # File handler - detailed logs
+    file_handler = logging.FileHandler(log_file, mode='w', encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+    
+    # Console handler - important logs only
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    root_logger.handlers.clear()
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
+    
+    logger.info(f"📝 Logging configured: {log_file}")
+    
+    return log_file
 
 
 class ActionType(str, Enum):
@@ -64,11 +104,42 @@ class AgentAction:
 class AICodeAgent:
     """Main AI Coding Agent with Groq integration"""
     
-    def __init__(self, groq_api_key: str, model: str = "llama-3.1-8b-instant"):
+    def __init__(self, groq_api_key: Optional[str] = None, model: str = "llama-3.1-8b-instant", log_file: str = "agent_execution.log"):
+        # Setup logging first
+        setup_logging(log_file)
+        
+        # Load API key from environment if not provided
+        if groq_api_key is None:
+            groq_api_key = os.getenv('GROQ_API_KEY')
+            if not groq_api_key:
+                raise ValueError("GROQ_API_KEY not found in environment variables or parameters")
+        
+        logger.info(f"\n{'#'*80}")
+        logger.info(f"🤖 AI CODE AGENT INITIALIZATION")
+        logger.info(f"{'#'*80}")
+        logger.info(f"📋 Model: {model}")
+        logger.info(f"📝 Log file: {log_file}")
+        
         self.client = AsyncGroq(api_key=groq_api_key)
         self.model = model
+        
+        logger.info(f"📚 Loading tool dictionary...")
         self.tool_dictionary = self._load_tool_dictionary()
+        logger.info(f"✅ Tool dictionary loaded: version {self.tool_dictionary.get('metadata', {}).get('version', 'unknown')}")
+        
+        logger.info(f"🔧 Building tool registry...")
         self.tool_registry = self._build_tool_registry()
+        logger.info(f"✅ Tool registry built: {len(self.tool_registry)} tools available")
+        
+        # Log available tools by category
+        logger.info(f"\n📦 Available Tools by Category:")
+        for category, tools_dict in self.tool_dictionary.get('tools', {}).items():
+            tool_names = [name for name in tools_dict.keys() if name in self.tool_registry]
+            if tool_names:
+                logger.info(f"   {category}: {', '.join(tool_names)}")
+        
+        logger.info(f"\n✅ Agent initialization complete!")
+        logger.info(f"{'#'*80}\n")
     
     def _load_tool_dictionary(self) -> Dict[str, Any]:
         """Load tool dictionary from config file"""
@@ -103,6 +174,7 @@ class AICodeAgent:
             'javascript_tools': tools.javascript_tools,
             'page_management': tools.page_management,
             'design_system': tools.design_system,
+            'redux_tools': tools.redux_tools,
         }
         
         for module_name, module in tool_modules.items():
@@ -143,6 +215,23 @@ Return a JSON array of task descriptions."""
     
     async def decide_action(self, context: AgentContext) -> AgentAction:
         """Decide next action based on context"""
+        
+        logger.info(f"\n{'='*80}")
+        logger.info(f"🧠 DECISION PHASE - Iteration {context.iteration}")
+        logger.info(f"{'='*80}")
+        logger.info(f"📊 Context State:")
+        logger.info(f"   - Conversation messages: {len(context.conversation_history)}")
+        logger.info(f"   - Tool results: {len(context.tool_results)}")
+        logger.info(f"   - Errors: {len(context.errors)}")
+        
+        # Log recent tool usage to detect loops
+        if len(context.tool_results) >= 3:
+            recent_tools = [r.metadata.get('tool_name', 'unknown') for r in context.tool_results[-3:]]
+            logger.info(f"   - Recent tools: {' -> '.join(recent_tools)}")
+            
+            # DETECT INFINITE LOOPS
+            if len(set(recent_tools)) == 1:
+                logger.warning(f"⚠️  LOOP DETECTED! Same tool called 3 times in a row: {recent_tools[0]}")
         
         # Build tool descriptions from tool_dictionary.json
         tool_descriptions = []
@@ -221,6 +310,9 @@ CRITICAL PARAMETER RULES:
 4. generate_page_with_components DOES NOT use "output_dir"
 5. Always use relative paths starting with "./" like "./demo/src/components"
 6. Component names must be PascalCase: "ProductCard" not "product-card"
+7. ⚠️ CRITICAL: For Redux state management, use "generate_redux_setup" NOT "generate_redux_store"
+   - This tool is ONLY called AFTER components are generated
+   - It automatically creates Redux slices based on component prop schemas
 
 ⚠️ CRITICAL: COMPONENT PATTERN SELECTION
 Pattern field is MANDATORY and must match component purpose:
@@ -254,6 +346,9 @@ RESPONSIVE DESIGN REQUIREMENTS:
 - Images and media should be fluid width (w-full) with max-width constraints
 
 JSON RESPONSE FORMAT (respond with ONLY valid JSON, no markdown):
+⚠️ CRITICAL: Return a SINGLE JSON OBJECT, NOT an array. Only ONE action per response.
+❌ WRONG: [{{"type": "tool_use", ...}}, {{"type": "tool_use", ...}}]
+✅ CORRECT: {{"type": "tool_use", "tool_name": "...", "parameters": {{...}}}}
 
 EXAMPLE 1 - Chat Interface with correct patterns:
 {{
@@ -309,6 +404,19 @@ EXAMPLE 3 - Single component generation:
     "reasoning": "Need to create the card component for products"
 }}
 
+EXAMPLE 4 - Redux setup (ONLY after components exist):
+{{
+    "type": "tool_use",
+    "tool_name": "generate_redux_setup",
+    "parameters": {{
+        "components": [],
+        "output_dir": "./demo/src/store",
+        "store_name": "store"
+    }},
+    "message": "Setting up Redux store",
+    "reasoning": "Creating Redux state management after components are ready"
+}}
+
 For completing:
 {{
     "type": "complete",
@@ -329,6 +437,10 @@ CRITICAL RULES:
         messages = [{"role": "system", "content": system_prompt}]
         messages.extend(context.conversation_history[-3:])  # Last 3 messages
         
+        logger.info(f"\n🤔 Calling LLM to decide action...")
+        logger.info(f"📝 Sending {len(messages)} messages to model: {self.model}")
+        logger.debug(f"� Last user message: {context.conversation_history[-1].get('content', '')[:200]}...")
+        
         response = await self.client.chat.completions.create(
             model=self.model,
             messages=messages,
@@ -337,10 +449,66 @@ CRITICAL RULES:
             response_format={"type": "json_object"}
         )
         
+        logger.info(f"✅ Received response from LLM")
+        
         try:
-            action_data = json.loads(response.choices[0].message.content)
+            content = response.choices[0].message.content
+            logger.info(f"\n� LLM RESPONSE (Raw):")
+            logger.info(f"{'-'*80}")
+            logger.info(f"{content[:500]}...")
+            logger.info(f"{'-'*80}")
+            
+            # Parse JSON - handle both objects and arrays
+            parsed = json.loads(content)
+            
+            # ⚠️ ROBUST HANDLING: Support both JSON object and array formats
+            if isinstance(parsed, list):
+                logger.warning(f"⚠️  Model returned array with {len(parsed)} elements. Processing first element.")
+                if len(parsed) == 0:
+                    logger.error(f"❌ Empty array returned!")
+                    return AgentAction(
+                        type=ActionType.ERROR,
+                        message="Model returned empty array"
+                    )
+                action_data = parsed[0]
+                logger.debug(f"✓ Extracted first element from array")
+            elif isinstance(parsed, dict):
+                action_data = parsed
+                logger.debug(f"✓ Received JSON object (correct format)")
+            else:
+                logger.error(f"❌ Unexpected JSON type: {type(parsed)}")
+                return AgentAction(
+                    type=ActionType.ERROR,
+                    message=f"Unexpected JSON type: {type(parsed)}"
+                )
+            
+            # Validate we have an action object
+            if not isinstance(action_data, dict):
+                logger.error(f"❌ Action data is not a dict: {type(action_data)}")
+                return AgentAction(
+                    type=ActionType.ERROR,
+                    message=f"Invalid action data type: {type(action_data)}"
+                )
+            
+            # LOG THE DECISION DETAILS
+            logger.info(f"\n🎯 AI DECISION:")
+            logger.info(f"   Type: {action_data.get('type', 'unknown')}")
+            if action_data.get('tool_name'):
+                logger.info(f"   Tool: {action_data.get('tool_name')}")
+            if action_data.get('message'):
+                logger.info(f"   Message: {action_data.get('message')}")
+            if action_data.get('reasoning'):
+                logger.info(f"   🧠 Reasoning: {action_data.get('reasoning')}")
+            if action_data.get('parameters'):
+                logger.info(f"   📝 Parameters:")
+                for key, value in action_data.get('parameters', {}).items():
+                    value_str = str(value)[:100] if not isinstance(value, (list, dict)) else json.dumps(value)[:100]
+                    logger.info(f"      - {key}: {value_str}")
+            
             return AgentAction(**action_data)
         except Exception as e:
+            logger.error(f"❌ Failed to parse LLM response: {str(e)}")
+            logger.debug(f"Response content: {response.choices[0].message.content}")
             return AgentAction(
                 type=ActionType.ERROR,
                 message=f"Failed to parse action: {str(e)}\nResponse: {response.choices[0].message.content[:200]}"
@@ -348,10 +516,21 @@ CRITICAL RULES:
     
     async def execute_tool(self, tool_name: str, parameters: Dict[str, Any]) -> ToolResult:
         """Execute a tool with given parameters"""
+        logger.info(f"\n{'='*80}")
+        logger.info(f"🔧 TOOL EXECUTION: {tool_name}")
+        logger.info(f"{'='*80}")
+        logger.info(f"📝 Parameters:")
+        for key, value in parameters.items():
+            value_str = str(value)[:200] if not isinstance(value, (list, dict)) else json.dumps(value, indent=2)[:300]
+            logger.info(f"   {key}: {value_str}")
+        
         if tool_name not in self.tool_registry:
+            logger.error(f"❌ Tool not found: {tool_name}")
+            logger.error(f"📚 Available tools ({len(self.tool_registry)}): {', '.join(list(self.tool_registry.keys())[:20])}")
             return ToolResult(
                 success=False,
-                error=f"Tool not found: {tool_name}"
+                error=f"Tool not found: {tool_name}",
+                metadata={"tool_name": tool_name}
             )
         
         tool_info = self.tool_registry[tool_name]
@@ -359,21 +538,43 @@ CRITICAL RULES:
         try:
             # Validate parameters
             schema = tool_info['schema']
+            logger.info(f"✓ Validating against schema: {schema.__name__}")
             validated_params = schema(**parameters)
+            logger.info(f"✅ Parameters validated successfully")
             
             # Execute tool
             start_time = time.time()
+            logger.info(f"⚙️  Calling tool function...")
             result = await tool_info['function'](validated_params)
             execution_time = (time.time() - start_time) * 1000
+            
+            # Add tool name to metadata for tracking
+            if not result.metadata:
+                result.metadata = {}
+            result.metadata['tool_name'] = tool_name
             
             if result.execution_time_ms is None:
                 result.execution_time_ms = execution_time
             
+            if result.success:
+                logger.info(f"✅ Tool {tool_name} succeeded in {execution_time:.2f}ms")
+                if result.data:
+                    logger.info(f"📦 Result data keys: {list(result.data.keys()) if isinstance(result.data, dict) else 'non-dict'}")
+                    # Log important file operations
+                    if 'files_created' in result.data:
+                        logger.info(f"📁 Files created: {result.data.get('files_created', [])}")
+                    if 'component_file' in result.data:
+                        logger.info(f"📄 Component file: {result.data.get('component_file')}")
+            else:
+                logger.error(f"❌ Tool {tool_name} failed: {result.error}")
+            
             return result
         except Exception as e:
+            logger.error(f"❌ Tool execution exception: {str(e)}", exc_info=True)
             return ToolResult(
                 success=False,
-                error=f"Tool execution failed: {str(e)}"
+                error=f"Tool execution failed: {str(e)}",
+                metadata={"tool_name": tool_name, "exception": str(e)}
             )
     
     async def synthesize_response(self, context: AgentContext) -> str:
@@ -398,6 +599,12 @@ CRITICAL RULES:
     
     async def execute(self, user_request: str, max_iterations: int = 10) -> Dict[str, Any]:
         """Main execution loop"""
+        logger.info(f"\n{'#'*80}")
+        logger.info(f"🚀 AGENT EXECUTION START")
+        logger.info(f"{'#'*80}")
+        logger.info(f"📋 User Request: {user_request[:200]}...")
+        logger.info(f"⚙️  Max Iterations: {max_iterations}")
+        
         context = AgentContext(
             user_request=user_request,
             max_iterations=max_iterations
@@ -408,12 +615,23 @@ CRITICAL RULES:
         
         # Plan tasks
         print(f"\n🎯 Planning tasks...")
+        logger.info(f"\n{'='*80}")
+        logger.info(f"📋 TASK PLANNING PHASE")
+        logger.info(f"{'='*80}")
         task_plan = await self.plan_tasks(user_request, context)
         print(f"📋 Task Plan: {json.dumps(task_plan, indent=2)}")
+        logger.info(f"✅ Task Plan Generated: {json.dumps(task_plan, indent=2)}")
         context.add_message("assistant", f"Task plan: {json.dumps(task_plan, indent=2)}")
         
         # Execution loop
         print(f"\n🚀 Starting execution loop (max {max_iterations} iterations)...\n")
+        logger.info(f"\n{'='*80}")
+        logger.info(f"🔄 EXECUTION LOOP START")
+        logger.info(f"{'='*80}")
+        
+        # Track tool usage to detect loops
+        tool_usage_history = []
+        
         while context.iteration < context.max_iterations:
             context.iteration += 1
             print(f"\n{'='*80}")
@@ -435,6 +653,24 @@ CRITICAL RULES:
                     print(f"💬 Message: {action.message}")
                     print(f"📝 Parameters: {json.dumps(action.parameters, indent=2)}")
                     
+                    # Track tool usage for loop detection
+                    tool_usage_history.append(action.tool_name)
+                    
+                    # HALLUCINATION DETECTION: Check for infinite loops
+                    if len(tool_usage_history) >= 5:
+                        recent_5 = tool_usage_history[-5:]
+                        # If same tool called 5 times in a row, STOP
+                        if len(set(recent_5)) == 1:
+                            error_msg = f"🚨 INFINITE LOOP DETECTED! Tool '{action.tool_name}' called 5 times consecutively. Stopping execution."
+                            logger.error(error_msg)
+                            print(f"\n❌ {error_msg}")
+                            context.add_error(error_msg)
+                            break
+                        
+                        # If alternating between 2 tools, also suspicious
+                        if len(set(recent_5)) == 2 and len(recent_5) == 5:
+                            logger.warning(f"⚠️  Possible loop detected: alternating between {set(recent_5)}")
+                    
                     # Execute tool
                     print(f"⚙️  Executing...")
                     result = await self.execute_tool(action.tool_name, action.parameters)
@@ -447,6 +683,15 @@ CRITICAL RULES:
                         print(f"❌ FAILED: {result.error}")
                     
                     context.add_tool_result(action.tool_name, result)
+                    
+                    # HALLUCINATION CHECK: Did the tool actually create what it claimed?
+                    if result.success and action.tool_name in ['generate_page_with_components', 'generate_react_component']:
+                        files_created = result.data.get('files_created', []) if result.data else []
+                        component_file = result.data.get('component_file', '') if result.data else ''
+                        
+                        if not files_created and not component_file:
+                            logger.warning(f"⚠️  HALLUCINATION WARNING: {action.tool_name} reported success but no files were created!")
+                            print(f"⚠️  WARNING: Tool claimed success but no files created!")
                     
                     # Handle errors with retry logic
                     if not result.success and context.iteration < context.max_iterations:
@@ -463,14 +708,74 @@ CRITICAL RULES:
                 break
         
         # Generate final response
+        logger.info(f"\n{'='*80}")
+        logger.info(f"📝 SYNTHESIZING FINAL RESPONSE")
+        logger.info(f"{'='*80}")
         final_response = await self.synthesize_response(context)
+        
+        # Generate execution summary
+        logger.info(f"\n{'#'*80}")
+        logger.info(f"📊 EXECUTION SUMMARY")
+        logger.info(f"{'#'*80}")
+        logger.info(f"✅ Success: {len(context.errors) == 0}")
+        logger.info(f"🔄 Iterations: {context.iteration}/{max_iterations}")
+        logger.info(f"🔧 Tools executed: {len(context.tool_results)}")
+        logger.info(f"❌ Errors: {len(context.errors)}")
+        
+        # Log tool breakdown
+        tool_counts = {}
+        files_created_all = []
+        for tr in context.tool_results:
+            tool_name = tr.metadata.get('tool_name', 'unknown')
+            tool_counts[tool_name] = tool_counts.get(tool_name, 0) + 1
+            
+            # Collect all files created
+            if tr.data:
+                if 'files_created' in tr.data:
+                    files_created_all.extend(tr.data['files_created'])
+                if 'component_file' in tr.data:
+                    files_created_all.append(tr.data['component_file'])
+        
+        logger.info(f"\n📋 Tool Usage Breakdown:")
+        for tool_name, count in sorted(tool_counts.items(), key=lambda x: x[1], reverse=True):
+            logger.info(f"   {tool_name}: {count} times")
+        
+        logger.info(f"\n📁 Total Files Created: {len(files_created_all)}")
+        for f in files_created_all[:20]:  # Show first 20
+            logger.info(f"   - {f}")
+        
+        if context.errors:
+            logger.error(f"\n❌ Errors Encountered:")
+            for i, err in enumerate(context.errors, 1):
+                logger.error(f"   {i}. {err}")
+        
+        # HALLUCINATION ANALYSIS
+        logger.info(f"\n🔍 HALLUCINATION ANALYSIS:")
+        
+        # Check if agent claimed completion without doing work
+        if context.iteration < 3 and len(context.tool_results) < 2:
+            logger.warning(f"⚠️  POSSIBLE HALLUCINATION: Agent completed in {context.iteration} iterations with only {len(context.tool_results)} tool calls")
+        
+        # Check if tools were called but no files created
+        component_tools = [tr for tr in context.tool_results if tr.metadata.get('tool_name') in ['generate_page_with_components', 'generate_react_component']]
+        if component_tools and not files_created_all:
+            logger.error(f"🚨 HALLUCINATION DETECTED: {len(component_tools)} component generation tools called but NO files created!")
+        
+        # Check for repetitive tool calls (same tool >3 times)
+        for tool_name, count in tool_counts.items():
+            if count > 3:
+                logger.warning(f"⚠️  Tool '{tool_name}' called {count} times - possible stuck loop")
+        
+        logger.info(f"\n{'#'*80}\n")
         
         return {
             "success": len(context.errors) == 0,
             "response": final_response,
             "iterations": context.iteration,
             "tool_results": [r.dict() for r in context.tool_results],
-            "errors": context.errors
+            "errors": context.errors,
+            "tool_usage": tool_counts,
+            "files_created": files_created_all
         }
 
 

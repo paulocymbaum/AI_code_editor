@@ -13,6 +13,7 @@ from . import (
     javascript_tools,
     page_management,
     design_system,
+    redux_tools,
 )
 
 __all__ = [
@@ -25,4 +26,5 @@ __all__ = [
     'javascript_tools',
     'page_management',
     'design_system',
+    'redux_tools',
 ]

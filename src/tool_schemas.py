@@ -366,11 +366,15 @@ class GenerateReactComponentInput(BaseModel):
     styling: str = Field(default="tailwind", description="tailwind, css-modules, styled-components")
     component_pattern: Optional[str] = Field(
         default=None, 
-        description="Component pattern: card, button, form, modal, list, hero, feature, pricing, or custom"
+        description="Component pattern: card, button, form, modal, list, hero, feature, pricing, sidebar, header, footer, messages, input, or custom. Choose based on component purpose: sidebar for navigation, header for top bars, messages for chat displays, input for message/chat input, form for data entry."
     )
     variant: Optional[str] = Field(
         default="primary",
         description="Style variant: primary, secondary, outline, ghost, success, warning, error"
+    )
+    with_redux: bool = Field(
+        default=False,
+        description="Connect component to Redux store with useAppSelector hooks"
     )
     output_dir: str = Field(default="./src/components", description="Output directory")
 
