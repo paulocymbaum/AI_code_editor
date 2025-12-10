@@ -366,7 +366,7 @@ class GenerateReactComponentInput(BaseModel):
     styling: str = Field(default="tailwind", description="tailwind, css-modules, styled-components")
     component_pattern: Optional[str] = Field(
         default=None, 
-        description="Component pattern: card, button, form, modal, list, hero, feature, pricing, sidebar, header, footer, messages, input, or custom. Choose based on component purpose: sidebar for navigation, header for top bars, messages for chat displays, input for message/chat input, form for data entry."
+        description="Component pattern: card, button, form, modal, list, hero, feature, pricing, sidebar, header, footer, messages, input, or custom"
     )
     variant: Optional[str] = Field(
         default="primary",
@@ -376,7 +376,11 @@ class GenerateReactComponentInput(BaseModel):
         default=False,
         description="Connect component to Redux store with useAppSelector hooks"
     )
-    output_dir: str = Field(default="./src/components", description="Output directory")
+    file_path: Optional[str] = Field(
+        default=None, 
+        description="Full file path including filename (e.g., demo/src/app/store/uiSlice.ts). If provided, takes precedence over output_dir."
+    )
+    output_dir: str = Field(default="./src/components", description="Output directory (used only if file_path is not provided)")
 
 
 class GenerateNextJSPageInput(BaseModel):
@@ -399,7 +403,7 @@ class GenerateAPIRouteInput(BaseModel):
 
 
 class TypeScriptCheckInput(BaseModel):
-    """Input for TypeScript type checking"""
+    """Input for TypeScript checking"""
     file_path: Optional[str] = Field(default=None, description="Specific file to check")
     project_root: str = Field(default=".", description="Project root directory")
     strict: bool = Field(default=True, description="Use strict mode")
@@ -418,11 +422,11 @@ class PrettierFormatInput(BaseModel):
     write: bool = Field(default=True, description="Write changes to file")
 
 
-class NPMCommandInput(BaseModel):
-    """Input for NPM commands"""
-    command: str = Field(..., description="NPM command (install, run, test, etc.)")
-    args: Optional[List[str]] = Field(default=None, description="Additional arguments")
-    working_dir: str = Field(default=".", description="Working directory")
+class NpmCommandInput(BaseModel):
+    """Input for npm commands"""
+    command: str = Field(..., description="npm command to run (e.g., 'install', 'run build')")
+    args: Optional[List[str]] = Field(default=None, description="Additional arguments for the command")
+    working_dir: Optional[str] = Field(default=None, description="Working directory")
 
 
 class GenerateTypeDefinitionsInput(BaseModel):
@@ -432,26 +436,151 @@ class GenerateTypeDefinitionsInput(BaseModel):
     output_file: str = Field(..., description="Output file path")
 
 
-# Import page management schemas
-from .tools.page_management import (
-    UpdatePageImportsInput,
-    GeneratePageWithComponentsInput,
-    OrganizeProjectFilesInput,
-    CleanDemoFolderInput
-)
+# ============================================================================
+# Page Management Schemas
+# ============================================================================
 
-# Import design system schemas
-from .tools.design_system import GenerateDesignSystemInput
+class UpdatePageImportsInput(BaseModel):
+    """Updates existing page file to import specified components. 
+    
+    Does NOT generate components - only updates imports in existing page.
+    Use this to fix broken imports or add new component references."""
+    page_path: str = Field(..., description="Path to the existing page file to update")
+    components: List[Dict[str, str]] = Field(
+        ..., 
+        description="List of components with 'name' and 'path' keys. Path can be relative or absolute."
+    )
+    replace_all: bool = Field(
+        default=False, 
+        description="If True, removes all existing component imports and adds only these. If False, adds to existing imports."
+    )
 
-# Import schemas from tool modules (at end to avoid circular imports)
-from .tools.design_system import GenerateDesignSystemInput
-from .tools.page_management import (
-    UpdatePageImportsInput,
-    GeneratePageWithComponentsInput,
-    OrganizeProjectFilesInput,
-    CleanDemoFolderInput
-)
-from .tools.redux_tools import GenerateReduxSetupInput
+
+class GeneratePageWithComponentsInput(BaseModel):
+    """Generates React components AND creates a page that imports them. All-in-one solution.
+    
+    This is the RECOMMENDED tool for creating new pages with components:
+    1. Generates all specified components using design system patterns
+    2. Creates the page file
+    3. Automatically imports all components into the page
+    4. Wires up components with proper props
+    
+    Use this instead of calling generate_react_component multiple times + update_page_imports."""
+    page_name: str = Field(..., description="Name of the page (e.g., 'products', 'about')")
+    page_path: str = Field(..., description="Full path where page should be created (e.g., './demo/src/app/products/page.tsx')")
+    components: List[Dict[str, Any]] = Field(
+        ..., 
+        description="REQUIRED: Components to generate. Each dict MUST have: 'name' (string, PascalCase), 'pattern' (REQUIRED: card|button|form|modal|list|hero|feature|pricing|sidebar|header|footer|messages|input|custom), optional 'variant' (primary|secondary|outline|ghost) and 'props_data' (dict). Pattern is MANDATORY - choose based on component purpose."
+    )
+    title: Optional[str] = Field(default=None, description="Page title text (used in h1)")
+    description: Optional[str] = Field(default=None, description="Page description text (used in subtitle)")
+    layout_type: Optional[str] = Field(
+        default="grid",
+        description="Page layout type: 'grid' (responsive grid), 'chat' (sidebar + main area), 'dashboard' (header + grid), 'landing' (stacked sections), 'app' (sidebar + content + details)"
+    )
+
+
+class OrganizeProjectFilesInput(BaseModel):
+    """Moves or copies files from source to target directory, organized by file type.
+    
+    WARNING: This tool physically moves files. Use with caution!
+    - Target directory cannot be inside source (prevents infinite loops)
+    - If clean_source=True, original files are DELETED after moving
+    - Creates subdirectories like 'components/', 'styles/', 'types/', etc.
+    
+    Use cases: Reorganizing messy project structure, archiving old files"""
+    source_dir: str = Field(..., description="Source directory containing files to organize")
+    target_base_dir: str = Field(..., description="Target directory where organized files will be placed. MUST be outside source_dir.")
+    create_subdirs: bool = Field(
+        default=True, 
+        description="If True, creates subdirectories (components/, styles/, etc). If False, all files go to target_base_dir root."
+    )
+    clean_source: bool = Field(
+        default=False, 
+        description="DANGER: If True, deletes original files from source after moving. Use False to copy instead."
+    )
+
+
+class CleanDemoFolderInput(BaseModel):
+    """Archives or deletes files in demo folder except those matching keep patterns.
+    
+    WARNING: This tool deletes files! ALWAYS use archive_dir to create backups.
+    - Keeps files matching patterns in keep_patterns
+    - Archives removed files to archive_dir (if provided)
+    - If archive_dir is None, files are permanently deleted
+    - Will NOT clean system directories (/, ~/Documents, etc)
+    
+    Use case: Cleaning up test/demo components while keeping essential config files"""
+    demo_dir: str = Field(default="./demo", description="Demo directory path to clean")
+    keep_patterns: List[str] = Field(
+        default=["*.config.*", "package.json", "tsconfig.json"],
+        description="Glob patterns for files to keep (e.g., '*.config.*', 'layout.tsx')"
+    )
+    archive_dir: Optional[str] = Field(
+        default=None, 
+        description="RECOMMENDED: Directory to archive removed files. If None, files are permanently deleted!"
+    )
+
+
+# ============================================================================
+# Design System Schema
+# ============================================================================
+
+class GenerateDesignSystemInput(BaseModel):
+    """Input for generating a complete design system"""
+    project_path: str = Field(..., description="Root path of the project")
+    framework: str = Field(
+        default="nextjs",
+        description="Framework: nextjs, react, vite"
+    )
+    include_dark_mode: bool = Field(
+        default=True,
+        description="Include dark mode support"
+    )
+    include_component_patterns: bool = Field(
+        default=True,
+        description="Generate component pattern CSS"
+    )
+    include_docs: bool = Field(
+        default=True,
+        description="Generate documentation"
+    )
+    include_layout: bool = Field(
+        default=True,
+        description="Generate Next.js layout file (for Next.js projects)"
+    )
+    css_output_path: Optional[str] = Field(
+        default=None,
+        description="Custom CSS output path (default: src/app/globals.css for Next.js)"
+    )
+    tailwind_config_path: Optional[str] = Field(
+        default=None,
+        description="Custom Tailwind config path (default: ./tailwind.config.js)"
+    )
+
+
+# ============================================================================
+# Redux Schema
+# ============================================================================
+
+class ComponentSchema(BaseModel):
+    """Schema for a component's props"""
+    name: str
+    props: Dict[str, Any] = Field(default_factory=dict)
+
+
+class GenerateReduxSetupInput(BaseModel):
+    """Input for generating Redux store setup"""
+    components: List[ComponentSchema] = Field(
+        description="List of component schemas with their props"
+    )
+    output_dir: str = Field(
+        description="Directory to create Redux files (typically demo/src/store)"
+    )
+    store_name: str = Field(
+        default="store",
+        description="Name of the store file"
+    )
 
 # Update TOOL_INPUT_SCHEMAS registry
 TOOL_INPUT_SCHEMAS.update({
@@ -462,7 +591,7 @@ TOOL_INPUT_SCHEMAS.update({
     "typescript_check": TypeScriptCheckInput,
     "eslint_check": ESLintCheckInput,
     "prettier_format": PrettierFormatInput,
-    "npm_command": NPMCommandInput,
+    "npm_command": NpmCommandInput,
     "generate_type_definitions": GenerateTypeDefinitionsInput,
     # Page Management
     "update_page_imports": UpdatePageImportsInput,

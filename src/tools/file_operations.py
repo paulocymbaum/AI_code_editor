@@ -12,14 +12,17 @@ from ..tool_schemas import (
     DeleteFileInput, ListDirectoryInput, SearchFilesInput,
     ToolResult
 )
+from ..utils.path_utils import PathUtils
 
 
 async def read_file(params: ReadFileInput) -> ToolResult:
     """Read file contents with encoding detection"""
     try:
-        file_path = pathlib.Path(params.file_path)
+        # Sanitize and validate path
+        safe_path = PathUtils.sanitize_path(params.file_path)
+        file_path = pathlib.Path(safe_path)
         
-        if not file_path.exists():
+        if not PathUtils.file_exists(safe_path):
             return ToolResult(
                 success=False,
                 error=f"File not found: {params.file_path}"
@@ -53,7 +56,9 @@ async def read_file(params: ReadFileInput) -> ToolResult:
 async def write_file(params: WriteFileInput) -> ToolResult:
     """Write content to file"""
     try:
-        file_path = pathlib.Path(params.file_path)
+        # Sanitize and validate path
+        safe_path = PathUtils.sanitize_path(params.file_path)
+        file_path = pathlib.Path(safe_path)
         
         # Create parent directories if needed
         if params.create_dirs:
@@ -76,9 +81,11 @@ async def write_file(params: WriteFileInput) -> ToolResult:
 async def edit_file(params: EditFileInput) -> ToolResult:
     """Apply targeted edits to a file"""
     try:
-        file_path = pathlib.Path(params.file_path)
+        # Sanitize and validate path
+        safe_path = PathUtils.sanitize_path(params.file_path)
+        file_path = pathlib.Path(safe_path)
         
-        if not file_path.exists():
+        if not PathUtils.file_exists(safe_path):
             return ToolResult(success=False, error=f"File not found: {params.file_path}")
         
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -106,9 +113,11 @@ async def edit_file(params: EditFileInput) -> ToolResult:
 async def delete_file(params: DeleteFileInput) -> ToolResult:
     """Delete a file safely"""
     try:
-        file_path = pathlib.Path(params.file_path)
+        # Sanitize and validate path
+        safe_path = PathUtils.sanitize_path(params.file_path)
+        file_path = pathlib.Path(safe_path)
         
-        if not file_path.exists():
+        if not PathUtils.file_exists(safe_path):
             return ToolResult(success=False, error=f"File not found: {params.file_path}")
         
         file_path.unlink()
@@ -121,7 +130,9 @@ async def delete_file(params: DeleteFileInput) -> ToolResult:
 async def list_directory(params: ListDirectoryInput) -> ToolResult:
     """List directory contents"""
     try:
-        dir_path = pathlib.Path(params.directory_path)
+        # Sanitize and validate path
+        safe_path = PathUtils.sanitize_path(params.directory_path)
+        dir_path = pathlib.Path(safe_path)
         
         if not dir_path.exists():
             return ToolResult(success=False, error=f"Directory not found: {params.directory_path}")
@@ -147,7 +158,9 @@ async def list_directory(params: ListDirectoryInput) -> ToolResult:
 async def search_files(params: SearchFilesInput) -> ToolResult:
     """Fuzzy search for files"""
     try:
-        root = pathlib.Path(params.root_path)
+        # Sanitize and validate path
+        safe_path = PathUtils.sanitize_path(params.root_path)
+        root = pathlib.Path(safe_path)
         matches = []
         
         for file_path in root.rglob("*"):

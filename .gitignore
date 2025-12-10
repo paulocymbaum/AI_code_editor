@@ -45,6 +45,15 @@ chroma_data/
 # Logs
 *.log
 logs/
+agent_detailed.log
+agent_execution.log
+test_logging.log
+test_output.log
+dashboard_run.log
+
+# Reports
+health_check_report.json
+dashboard_creation_report.json
 
 # OS
 .DS_Store

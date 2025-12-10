@@ -5,95 +5,40 @@ Tools for managing Next.js pages, automatic imports, and file organization
 
 import pathlib
 import re
+import json
 from typing import List, Dict, Optional, Any
 from pydantic import BaseModel, Field
-from ..tool_schemas import ToolResult
+from ..tool_schemas import (
+    ToolResult,
+    UpdatePageImportsInput,
+    GeneratePageWithComponentsInput,
+    OrganizeProjectFilesInput,
+    CleanDemoFolderInput
+)
+from ..utils.path_utils import PathUtils
 
 
 # ============================================================================
-# Input Schemas
+# Layout Templates Loader
 # ============================================================================
 
-class UpdatePageImportsInput(BaseModel):
-    """Updates existing page file to import specified components. 
+def _load_layout_templates() -> Dict[str, Any]:
+    """Load layout templates from JSON configuration"""
+    config_dir = pathlib.Path(__file__).parent.parent.parent / "config"
+    templates_file = config_dir / "layout_templates.json"
     
-    Does NOT generate components - only updates imports in existing page.
-    Use this to fix broken imports or add new component references."""
-    page_path: str = Field(..., description="Path to the existing page file to update")
-    components: List[Dict[str, str]] = Field(
-        ..., 
-        description="List of components with 'name' and 'path' keys. Path can be relative or absolute."
-    )
-    replace_all: bool = Field(
-        default=False, 
-        description="If True, removes all existing component imports and adds only these. If False, adds to existing imports."
-    )
+    if not templates_file.exists():
+        return {"layouts": {}}  # Return empty if file doesn't exist
+    
+    with open(templates_file, 'r', encoding='utf-8') as f:
+        return json.load(f)
 
 
-class GeneratePageWithComponentsInput(BaseModel):
-    """Generates React components AND creates a page that imports them. All-in-one solution.
-    
-    This is the RECOMMENDED tool for creating new pages with components:
-    1. Generates all specified components using design system patterns
-    2. Creates the page file
-    3. Automatically imports all components into the page
-    4. Wires up components with proper props
-    
-    Use this instead of calling generate_react_component multiple times + update_page_imports."""
-    page_name: str = Field(..., description="Name of the page (e.g., 'products', 'about')")
-    page_path: str = Field(..., description="Full path where page should be created (e.g., './demo/src/app/products/page.tsx')")
-    components: List[Dict[str, Any]] = Field(
-        ..., 
-        description="REQUIRED: Components to generate. Each dict MUST have: 'name' (string, PascalCase), 'pattern' (REQUIRED: card|button|form|modal|list|hero|feature|pricing|sidebar|header|footer|messages|input|custom), optional 'variant' (primary|secondary|outline|ghost) and 'props_data' (dict). Pattern is MANDATORY - choose based on component purpose."
-    )
-    title: Optional[str] = Field(default=None, description="Page title text (used in h1)")
-    description: Optional[str] = Field(default=None, description="Page description text (used in subtitle)")
-    layout_type: Optional[str] = Field(
-        default="grid",
-        description="Page layout type: 'grid' (responsive grid), 'chat' (sidebar + main area), 'dashboard' (header + grid), 'landing' (stacked sections), 'app' (sidebar + content + details)"
-    )
+# ============================================================================
+# Input Schemas - Now imported from tool_schemas.py
+# ============================================================================
 
-
-class OrganizeProjectFilesInput(BaseModel):
-    """Moves or copies files from source to target directory, organized by file type.
-    
-    WARNING: This tool physically moves files. Use with caution!
-    - Target directory cannot be inside source (prevents infinite loops)
-    - If clean_source=True, original files are DELETED after moving
-    - Creates subdirectories like 'components/', 'styles/', 'types/', etc.
-    
-    Use cases: Reorganizing messy project structure, archiving old files"""
-    source_dir: str = Field(..., description="Source directory containing files to organize")
-    target_base_dir: str = Field(..., description="Target directory where organized files will be placed. MUST be outside source_dir.")
-    create_subdirs: bool = Field(
-        default=True, 
-        description="If True, creates subdirectories (components/, styles/, etc). If False, all files go to target_base_dir root."
-    )
-    clean_source: bool = Field(
-        default=False, 
-        description="DANGER: If True, deletes original files from source after moving. Use False to copy instead."
-    )
-
-
-class CleanDemoFolderInput(BaseModel):
-    """Archives or deletes files in demo folder except those matching keep patterns.
-    
-    WARNING: This tool deletes files! ALWAYS use archive_dir to create backups.
-    - Keeps files matching patterns in keep_patterns
-    - Archives removed files to archive_dir (if provided)
-    - If archive_dir is None, files are permanently deleted
-    - Will NOT clean system directories (/, ~/Documents, etc)
-    
-    Use case: Cleaning up test/demo components while keeping essential config files"""
-    demo_dir: str = Field(default="./demo", description="Demo directory path to clean")
-    keep_patterns: List[str] = Field(
-        default=["*.config.*", "package.json", "tsconfig.json"],
-        description="Glob patterns for files to keep (e.g., '*.config.*', 'layout.tsx')"
-    )
-    archive_dir: Optional[str] = Field(
-        default=None, 
-        description="RECOMMENDED: Directory to archive removed files. If None, files are permanently deleted!"
-    )
+# Schema definitions moved to tool_schemas.py to avoid circular imports
 
 
 # ============================================================================
@@ -127,31 +72,16 @@ def _generate_import_statement(component_name: str, component_path: str) -> str:
 
 
 def _calculate_relative_path(from_path: str, to_path: str) -> str:
-    """Calculate relative path between two files"""
-    from_file = pathlib.Path(from_path).resolve()
-    to_file = pathlib.Path(to_path).resolve()
-    
-    # Get directory of from_file
-    from_dir = from_file.parent
-    
-    # Calculate relative path
-    try:
-        relative = pathlib.Path(to_file).relative_to(from_dir)
-        # Convert to string with forward slashes and add ./
-        rel_str = str(relative).replace('\\', '/')
-        if not rel_str.startswith('.'):
-            rel_str = './' + rel_str
-        # Remove extension
-        rel_str = re.sub(r'\.(tsx|jsx|ts|js)$', '', rel_str)
-        return rel_str
-    except ValueError:
-        # Files are on different drives or can't be made relative
-        # Use absolute path from project root
-        return str(to_file).replace('\\', '/')
+    """Calculate relative path between two files - uses PathUtils"""
+    # Use centralized PathUtils for consistent relative path calculation
+    rel_path = PathUtils.calculate_relative_path(from_path, to_path)
+    # Remove extension for imports
+    rel_path = re.sub(r'\.(tsx|jsx|ts|js)$', '', rel_path)
+    return rel_path
 
 
 def _generate_layout(layout_type: str, components: List[Dict[str, str]], title: str, description: str) -> str:
-    """Generate responsive page layout HTML based on layout type
+    """Generate responsive page layout HTML based on layout type (loads from JSON)
     
     Supported layouts:
     - chat: Sidebar + Main content (header, messages, input, footer)
@@ -161,6 +91,16 @@ def _generate_layout(layout_type: str, components: List[Dict[str, str]], title: 
     - grid: Simple responsive grid (default)
     """
     
+    # Load layouts from JSON
+    templates_data = _load_layout_templates()
+    layouts = templates_data.get("layouts", {})
+    
+    # Fallback to grid if layout not found
+    if layout_type not in layouts:
+        layout_type = "grid"
+    
+    layout_config = layouts[layout_type]
+    
     # Helper to get component by name pattern
     def get_comp(pattern: str):
         for comp in components:
@@ -168,46 +108,19 @@ def _generate_layout(layout_type: str, components: List[Dict[str, str]], title: 
                 return comp['tag']
         return None
     
+    # Handle each layout type
     if layout_type == "chat":
-        # Chat layout: Sidebar + Main content area
+        # Simple template replacement
+        template = layout_config["template"]
         sidebar = get_comp('sidebar') or (components[0]['tag'] if len(components) > 0 else '')
         header = get_comp('header') or (components[1]['tag'] if len(components) > 1 else '')
         messages = get_comp('message') or get_comp('list') or (components[2]['tag'] if len(components) > 2 else '')
         input_comp = get_comp('input') or get_comp('form') or (components[3]['tag'] if len(components) > 3 else '')
         footer = get_comp('footer') or (components[4]['tag'] if len(components) > 4 else '')
         
-        return f'''<div className="flex h-screen bg-neutral-50">
-      {{/* Sidebar - Hidden on mobile, visible on md+ */}}
-      <aside className="hidden md:flex md:w-64 lg:w-80 flex-col border-r border-neutral-200 bg-white">
-        {sidebar}
-      </aside>
-      
-      {{/* Main Content */}}
-      <main className="flex-1 flex flex-col overflow-hidden">
-        {{/* Header */}}
-        <header className="border-b border-neutral-200 bg-white p-4">
-          {header}
-        </header>
-        
-        {{/* Messages Area - Scrollable */}}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
-          {messages}
-        </div>
-        
-        {{/* Input Area */}}
-        <div className="border-t border-neutral-200 bg-white p-4">
-          {input_comp}
-        </div>
-        
-        {{/* Footer */}}
-        <footer className="border-t border-neutral-200 bg-neutral-50 p-2 sm:p-3">
-          {footer}
-        </footer>
-      </main>
-    </div>'''
+        return template.replace('{sidebar}', sidebar).replace('{header}', header).replace('{messages}', messages).replace('{input}', input_comp).replace('{footer}', footer)
     
     elif layout_type == "dashboard":
-        # Professional Dashboard layout: Sidebar + Main area (Header + Stats + Tabs + Footer)
         sidebar = get_comp('sidebar')
         header = get_comp('header')
         footer = get_comp('footer')
@@ -220,147 +133,45 @@ def _generate_layout(layout_type: str, components: List[Dict[str, str]], title: 
         cards_html = '\n              '.join(cards) if cards else ''
         other_html = '\n            '.join(other_comps) if other_comps else ''
         
-        # Build layout with or without sidebar
-        if sidebar:
-            return f'''<div className="flex min-h-screen bg-neutral-50">
-      {{/* Sidebar - Collapsible on mobile */}}
-      <aside className="hidden lg:flex lg:w-64 xl:w-72 flex-col border-r border-neutral-200 bg-white">
-        {sidebar}
-      </aside>
-      
-      {{/* Main Content Area */}}
-      <main className="flex-1 flex flex-col overflow-hidden">
-        {{/* Header - Sticky */}}
-        {('<header className="bg-white border-b border-neutral-200 sticky top-0 z-10 px-4 sm:px-6 lg:px-8 py-4">' + f"""
-          {header}
-        </header>""") if header else ''}
+        # Build sections
+        header_section = (f'<header className="bg-white border-b border-neutral-200 sticky top-0 z-10 px-4 sm:px-6 lg:px-8 py-4">\n          {header}\n        </header>') if header else ''
+        cards_section = (f'<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 mb-8">\n              {cards_html}\n            </div>') if cards else ''
+        tabs_section = (f'<div className="mb-6">\n              {tabs}\n            </div>') if tabs else ''
+        other_section = (f'<div className="space-y-6">\n              {other_html}\n            </div>') if other_html else ''
+        footer_section = (f'<footer className="border-t border-neutral-200 bg-white px-4 sm:px-6 lg:px-8 py-4">\n          {footer}\n        </footer>') if footer else ''
         
-        {{/* Dashboard Content - Scrollable */}}
-        <div className="flex-1 overflow-y-auto">
-          <div className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-            {{/* Page Title */}}
-            <div className="mb-6 sm:mb-8">
-              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-neutral-900 mb-2">
-                {title}
-              </h1>
-              <p className="text-sm sm:text-base text-neutral-600">
-                {description}
-              </p>
-            </div>
-            
-            {{/* Stats Grid */}}
-            {('<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 mb-8">' + f"""
-              {cards_html}
-            </div>""") if cards else ''}
-            
-            {{/* Tab Navigation */}}
-            {('<div className="mb-6">' + f"""
-              {tabs}
-            </div>""") if tabs else ''}
-            
-            {{/* Other Components */}}
-            {('<div className="space-y-6">' + f"""
-              {other_html}
-            </div>""") if other_html else ''}
-          </div>
-        </div>
+        # Choose template based on sidebar presence
+        template = layout_config["template_with_sidebar"] if sidebar else layout_config["template_no_sidebar"]
         
-        {{/* Footer */}}
-        {('<footer className="border-t border-neutral-200 bg-white px-4 sm:px-6 lg:px-8 py-4">' + f"""
-          {footer}
-        </footer>""") if footer else ''}
-      </main>
-    </div>'''
-        else:
-            # No sidebar - just header and grid
-            header_html = ('<header className="bg-white border-b border-neutral-200 sticky top-0 z-10">' + f"""
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          {header}
-        </div>
-      </header>""") if header else ''
-            
-            cards_section = ('<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 mb-8">' + f"""
-            {cards_html}
-        </div>""") if cards else ''
-            
-            tabs_section = ('<div className="mb-6">' + f"""
-            {tabs}
-        </div>""") if tabs else ''
-            
-            other_section = ('<div className="space-y-6">' + f"""
-            {other_html}
-        </div>""") if other_html else ''
-            
-            return f'''<div className="min-h-screen bg-neutral-50">
-      {header_html}
-      
-      <main className="container mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 lg:py-12">
-        <div className="mb-8 sm:mb-12">
-          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-neutral-900 mb-2 sm:mb-3">
-            {title}
-          </h1>
-          <p className="text-base sm:text-lg text-neutral-600">
-            {description}
-          </p>
-        </div>
-        
-        {cards_section}
-        
-        {tabs_section}
-        
-        {other_section}
-      </main>
-      
-      {('<footer className="border-t border-neutral-200 bg-neutral-50 py-8">' + f"""
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          {footer}
-        </div>
-      </footer>""") if footer else ''}
-    </div>'''
+        return template.replace('{sidebar}', sidebar or '').replace('{header_section}', header_section).replace('{title}', title).replace('{description}', description).replace('{cards_section}', cards_section).replace('{tabs_section}', tabs_section).replace('{other_section}', other_section).replace('{footer_section}', footer_section)
     
     elif layout_type == "landing":
-        # Landing page: Stacked sections
+        template = layout_config["template"]
+        section_template = layout_config["section_template"]
+        
         hero = get_comp('hero') or (components[0]['tag'] if len(components) > 0 else '')
         sections = [c['tag'] for c in components[1:]] if len(components) > 1 else []
         sections_html = ''
         for i, section in enumerate(sections):
             bg_class = 'bg-white' if i % 2 == 0 else 'bg-neutral-50'
-            sections_html += f'''
-      <section className="{bg_class} py-12 sm:py-16 lg:py-24">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          {section}
-        </div>
-      </section>'''
+            sections_html += '\n      ' + section_template.replace('{bg_class}', bg_class).replace('{content}', section)
         
-        return f'''<div className="min-h-screen">
-      <section className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-primary-100">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          {hero}
-        </div>
-      </section>
-      {sections_html}
-    </div>'''
+        return template.replace('{hero}', hero).replace('{sections}', sections_html)
+    
+    elif layout_type == "app":
+        template = layout_config["template"]
+        sidebar = get_comp('sidebar') or (components[0]['tag'] if len(components) > 0 else '')
+        content = '\n          '.join([c['tag'] for c in components[1:] if 'detail' not in c['name'].lower()])
+        details = get_comp('detail')
+        details_section = (f'<aside className="w-80 xl:w-96 flex-shrink-0 border-l border-neutral-200 bg-white overflow-y-auto">\n        {details}\n      </aside>') if details else ''
+        
+        return template.replace('{sidebar}', sidebar).replace('{content}', content).replace('{details_section}', details_section)
     
     else:  # Default: "grid"
-        # Simple responsive grid layout
+        template = layout_config["template"]
         all_components = '\n            '.join([c['tag'] for c in components])
         
-        return f'''<div className="min-h-screen bg-neutral-50 py-6 sm:py-8 lg:py-12">
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="mb-8 sm:mb-12">
-          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-neutral-900 mb-2 sm:mb-3">
-            {title}
-          </h1>
-          <p className="text-base sm:text-lg text-neutral-600">
-            {description}
-          </p>
-        </div>
-        
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-            {all_components}
-        </div>
-      </div>
-    </div>'''
+        return template.replace('{title}', title).replace('{description}', description).replace('{components}', all_components)
 
 
 def _ensure_nextjs_project_files(project_root: pathlib.Path) -> List[str]:
@@ -480,9 +291,11 @@ module.exports = nextConfig
 async def update_page_imports(params: UpdatePageImportsInput) -> ToolResult:
     """Update imports in a page file"""
     try:
-        page_path = pathlib.Path(params.page_path)
+        # Sanitize and validate path
+        safe_path = PathUtils.sanitize_path(params.page_path)
+        page_path = pathlib.Path(safe_path)
         
-        if not page_path.exists():
+        if not PathUtils.file_exists(safe_path):
             return ToolResult(
                 success=False, 
                 error=f"Page file not found: {params.page_path}"

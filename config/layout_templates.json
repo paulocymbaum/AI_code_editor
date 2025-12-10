@@ -1,0 +1,54 @@
+{
+  "version": "1.0.0",
+  "description": "Page layout templates for different application types",
+  "layouts": {
+    "chat": {
+      "description": "Chat application with sidebar, messages, and input",
+      "structure": {
+        "sidebar": {"position": 0, "pattern": "sidebar", "fallback": true},
+        "header": {"position": 1, "pattern": "header", "fallback": true},
+        "messages": {"position": 2, "patterns": ["message", "list"], "fallback": true},
+        "input": {"position": 3, "patterns": ["input", "form"], "fallback": true},
+        "footer": {"position": 4, "pattern": "footer", "fallback": true}
+      },
+      "template": "<div className=\"flex h-screen bg-neutral-50\">\n      {/* Sidebar - Hidden on mobile, visible on md+ */}\n      <aside className=\"hidden md:flex md:w-64 lg:w-80 flex-col border-r border-neutral-200 bg-white\">\n        {sidebar}\n      </aside>\n      \n      {/* Main Content */}\n      <main className=\"flex-1 flex flex-col overflow-hidden\">\n        {/* Header */}\n        <header className=\"border-b border-neutral-200 bg-white p-4\">\n          {header}\n        </header>\n        \n        {/* Messages Area - Scrollable */}\n        <div className=\"flex-1 overflow-y-auto p-4 sm:p-6 space-y-4\">\n          {messages}\n        </div>\n        \n        {/* Input Area */}\n        <div className=\"border-t border-neutral-200 bg-white p-4\">\n          {input}\n        </div>\n        \n        {/* Footer */}\n        <footer className=\"border-t border-neutral-200 bg-neutral-50 p-2 sm:p-3\">\n          {footer}\n        </footer>\n      </main>\n    </div>"
+    },
+    "dashboard": {
+      "description": "Dashboard with optional sidebar, stats grid, and content",
+      "structure": {
+        "sidebar": {"pattern": "sidebar", "optional": true},
+        "header": {"pattern": "header", "optional": true},
+        "cards": {"patterns": ["card", "stat"], "multiple": true},
+        "tabs": {"patterns": ["tab", "navigation"], "optional": true},
+        "footer": {"pattern": "footer", "optional": true}
+      },
+      "template_with_sidebar": "<div className=\"flex min-h-screen bg-neutral-50\">\n      {/* Sidebar - Collapsible on mobile */}\n      <aside className=\"hidden lg:flex lg:w-64 xl:w-72 flex-col border-r border-neutral-200 bg-white\">\n        {sidebar}\n      </aside>\n      \n      {/* Main Content Area */}\n      <main className=\"flex-1 flex flex-col overflow-hidden\">\n        {/* Header - Sticky */}\n        {header_section}\n        \n        {/* Dashboard Content - Scrollable */}\n        <div className=\"flex-1 overflow-y-auto\">\n          <div className=\"px-4 sm:px-6 lg:px-8 py-6 sm:py-8\">\n            {/* Page Title */}\n            <div className=\"mb-6 sm:mb-8\">\n              <h1 className=\"text-2xl sm:text-3xl lg:text-4xl font-bold text-neutral-900 mb-2\">\n                {title}\n              </h1>\n              <p className=\"text-sm sm:text-base text-neutral-600\">\n                {description}\n              </p>\n            </div>\n            \n            {/* Stats Grid */}\n            {cards_section}\n            \n            {/* Tab Navigation */}\n            {tabs_section}\n            \n            {/* Other Components */}\n            {other_section}\n          </div>\n        </div>\n        \n        {/* Footer */}\n        {footer_section}\n      </main>\n    </div>",
+      "template_no_sidebar": "<div className=\"min-h-screen bg-neutral-50\">\n      {header_section}\n      \n      <main className=\"container mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 lg:py-12\">\n        <div className=\"mb-8 sm:mb-12\">\n          <h1 className=\"text-3xl sm:text-4xl lg:text-5xl font-bold text-neutral-900 mb-2 sm:mb-3\">\n            {title}\n          </h1>\n          <p className=\"text-base sm:text-lg text-neutral-600\">\n            {description}\n          </p>\n        </div>\n        \n        {cards_section}\n        \n        {tabs_section}\n        \n        {other_section}\n      </main>\n      \n      {footer_section}\n    </div>"
+    },
+    "landing": {
+      "description": "Landing page with hero and stacked sections",
+      "structure": {
+        "hero": {"position": 0, "pattern": "hero", "fallback": true},
+        "sections": {"position": "1+", "multiple": true}
+      },
+      "template": "<div className=\"min-h-screen\">\n      <section className=\"min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-primary-100\">\n        <div className=\"container mx-auto px-4 sm:px-6 lg:px-8\">\n          {hero}\n        </div>\n      </section>\n      {sections}\n    </div>",
+      "section_template": "<section className=\"{bg_class} py-12 sm:py-16 lg:py-24\">\n        <div className=\"container mx-auto px-4 sm:px-6 lg:px-8\">\n          {content}\n        </div>\n      </section>"
+    },
+    "app": {
+      "description": "Application with sidebar, main content, and optional details panel",
+      "structure": {
+        "sidebar": {"pattern": "sidebar", "required": true},
+        "content": {"position": "main", "multiple": true},
+        "details": {"pattern": "details", "optional": true}
+      },
+      "template": "<div className=\"flex h-screen bg-neutral-50\">\n      {/* Left Sidebar */}\n      <aside className=\"w-64 lg:w-72 flex-shrink-0 border-r border-neutral-200 bg-white overflow-y-auto\">\n        {sidebar}\n      </aside>\n      \n      {/* Main Content */}\n      <main className=\"flex-1 overflow-y-auto\">\n        <div className=\"container mx-auto px-4 sm:px-6 py-6 sm:py-8\">\n          {content}\n        </div>\n      </main>\n      \n      {/* Right Details Panel (Optional) */}\n      {details_section}\n    </div>"
+    },
+    "grid": {
+      "description": "Simple responsive grid layout (default)",
+      "structure": {
+        "components": {"all": true}
+      },
+      "template": "<div className=\"min-h-screen bg-neutral-50 py-6 sm:py-8 lg:py-12\">\n      <div className=\"container mx-auto px-4 sm:px-6 lg:px-8\">\n        <div className=\"mb-8 sm:mb-12\">\n          <h1 className=\"text-3xl sm:text-4xl lg:text-5xl font-bold text-neutral-900 mb-2 sm:mb-3\">\n            {title}\n          </h1>\n          <p className=\"text-base sm:text-lg text-neutral-600\">\n            {description}\n          </p>\n        </div>\n        \n        <div className=\"grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6\">\n            {components}\n        </div>\n      </div>\n    </div>"
+    }
+  }
+}

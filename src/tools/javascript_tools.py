@@ -7,91 +7,28 @@ import subprocess
 import json
 import pathlib
 from typing import Optional, List, Dict, Any
-from ..tool_schemas import ToolResult
+from functools import lru_cache
+from ..tool_schemas import (
+    ToolResult,
+    GenerateReactComponentInput,
+    GenerateNextJSPageInput,
+    GenerateAPIRouteInput,
+    TypeScriptCheckInput,
+    ESLintCheckInput,
+    PrettierFormatInput,
+    NpmCommandInput,
+    GenerateTypeDefinitionsInput
+)
 from pydantic import BaseModel, Field
 from .design_tokens import DesignTokens
+from ..utils.path_utils import PathUtils
 
 
 # ============================================================================
-# Input Schemas for JS/TS Tools
+# NOTE: All input schemas are now centralized in src/tool_schemas.py
+# This eliminates duplication and ensures consistency across the codebase.
 # ============================================================================
-
-class GenerateReactComponentInput(BaseModel):
-    """Input for generating React components"""
-    component_name: str = Field(..., description="Name of the component (PascalCase)")
-    component_type: str = Field(default="functional", description="functional or class")
-    use_typescript: bool = Field(default=True, description="Generate TypeScript")
-    props: Optional[List[Dict[str, str]]] = Field(default=None, description="Component props")
-    hooks: Optional[List[str]] = Field(default=None, description="React hooks to use")
-    styling: str = Field(default="tailwind", description="tailwind, css-modules, styled-components")
-    component_pattern: Optional[str] = Field(
-        default=None, 
-        description="Component pattern: card, button, form, modal, list, hero, feature, pricing, sidebar, header, footer, messages, input, or custom. Choose based on component purpose: sidebar for navigation, header for top bars, messages for chat displays, input for message/chat input, form for data entry."
-    )
-    variant: Optional[str] = Field(
-        default="primary",
-        description="Style variant: primary, secondary, outline, ghost, success, warning, error"
-    )
-    with_redux: bool = Field(
-        default=False,
-        description="Connect component to Redux store with useAppSelector hooks"
-    )
-    output_dir: str = Field(default="./src/components", description="Output directory")
-
-
-class GenerateNextJSPageInput(BaseModel):
-    """Input for generating Next.js pages"""
-    page_name: str = Field(..., description="Page name (kebab-case)")
-    route: str = Field(..., description="Route path (e.g., /about, /blog/[slug])")
-    use_typescript: bool = Field(default=True, description="Generate TypeScript")
-    data_fetching: Optional[str] = Field(default=None, description="SSR, SSG, ISR, or CSR")
-    layout: Optional[str] = Field(default=None, description="Layout to use")
-    output_dir: str = Field(default="./src/app", description="Output directory")
-
-
-class GenerateAPIRouteInput(BaseModel):
-    """Input for generating API routes"""
-    route_name: str = Field(..., description="API route name")
-    method: str = Field(default="GET", description="HTTP method")
-    use_typescript: bool = Field(default=True, description="Generate TypeScript")
-    framework: str = Field(default="nextjs", description="nextjs, express, fastify")
-    output_dir: str = Field(default="./src/app/api", description="Output directory")
-
-
-class TypeScriptCheckInput(BaseModel):
-    """Input for TypeScript type checking"""
-    file_path: Optional[str] = Field(default=None, description="Specific file to check")
-    project_root: str = Field(default=".", description="Project root directory")
-    strict: bool = Field(default=True, description="Use strict mode")
-
-
-class ESLintCheckInput(BaseModel):
-    """Input for ESLint checking"""
-    file_path: Optional[str] = Field(default=None, description="Specific file to check")
-    fix: bool = Field(default=False, description="Auto-fix issues")
-    project_root: str = Field(default=".", description="Project root directory")
-
-
-class PrettierFormatInput(BaseModel):
-    """Input for Prettier formatting"""
-    file_path: str = Field(..., description="File to format")
-    write: bool = Field(default=True, description="Write changes to file")
-
-
-class NPMCommandInput(BaseModel):
-    """Input for NPM commands"""
-    command: str = Field(..., description="NPM command (install, run, test, etc.)")
-    args: Optional[List[str]] = Field(default=None, description="Additional arguments")
-    working_dir: str = Field(default=".", description="Working directory")
-
-
-class GenerateTypeDefinitionsInput(BaseModel):
-    """Input for generating TypeScript type definitions"""
-    source: str = Field(..., description="Source (API response, JSON, etc.)")
-    type_name: str = Field(..., description="Name for the type/interface")
-    output_file: str = Field(..., description="Output file path")
-
-
+# Pattern Loading
 # ============================================================================
 # Helper Functions for Design System Integration
 # ============================================================================
@@ -803,12 +740,20 @@ async def generate_react_component(params: GenerateReactComponentInput) -> ToolR
                     # (could be intentional in some cases)
                     pass
         
+        # Determine output path - prioritize file_path over output_dir
+        if params.file_path:
+            # Use explicit file_path if provided
+            component_file = pathlib.Path(params.file_path)
+            output_dir = component_file.parent
+        else:
+            # Fall back to output_dir + component name
+            output_dir = pathlib.Path(params.output_dir)
+            component_file = output_dir / f"{params.component_name}.{ext}"
+        
         # Create output directory
-        output_dir = pathlib.Path(params.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         
         # Write component file
-        component_file = output_dir / f"{params.component_name}.{ext}"
         with open(component_file, 'w', encoding='utf-8') as f:
             f.write(component_code)
         
@@ -1077,7 +1022,7 @@ async def prettier_format(params: PrettierFormatInput) -> ToolResult:
         return ToolResult(success=False, error=str(e))
 
 
-async def npm_command(params: NPMCommandInput) -> ToolResult:
+async def npm_command(params: NpmCommandInput) -> ToolResult:
     """Execute NPM commands"""
     try:
         cmd = ['npm', params.command]

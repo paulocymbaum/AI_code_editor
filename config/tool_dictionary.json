@@ -10,12 +10,19 @@
         "returns": "file_content"
       },
       "write_file": {
-        "description": "Create or overwrite a file with new content",
+        "description": "Create or overwrite a file with new content. ⚠️ USE ONLY FOR: config files (.json, .yml, .env), documentation (.md, .txt), scripts (.sh, .py non-component). DO NOT USE FOR: React components (.tsx, .jsx) - use generate_react_component instead.",
         "category": "file_operations",
         "risk_level": "high",
         "requires_approval": true,
         "parameters": ["file_path", "content", "create_dirs"],
-        "returns": "success_status"
+        "returns": "success_status",
+        "not_suitable_for": ["react_components", "tsx_files", "jsx_files", "styled_components"],
+        "use_instead": {
+          "react_components": "generate_react_component",
+          "pages": "generate_page_with_components"
+        },
+        "capabilities": ["create_any_file", "raw_file_writing"],
+        "limitations": ["no_design_system", "no_type_inference", "no_pattern_matching", "no_responsive_design", "no_validation"]
       },
       "edit_file": {
         "description": "Apply targeted edits to specific lines or code blocks",
@@ -238,12 +245,22 @@
     },
     "javascript_react": {
       "generate_react_component": {
-        "description": "Generate React functional or class components with TypeScript",
+        "description": "🌟 PRIMARY TOOL FOR REACT COMPONENTS: Generate React components with full design system integration. Automatically applies design tokens from config/design-tokens.json, component patterns from config/component_patterns.json, proper TypeScript types, and responsive Tailwind CSS classes. USE THIS INSTEAD OF write_file for ALL .tsx/.jsx files. IMPORTANT: Use 'file_path' parameter for full path (e.g., demo/src/app/store/uiSlice.ts) OR 'output_dir' for directory only.",
         "category": "javascript_react",
         "risk_level": "low",
         "requires_approval": false,
-        "parameters": ["component_name", "component_type", "use_typescript", "props", "hooks", "styling", "output_dir"],
+        "parameters": ["component_name", "component_type", "use_typescript", "props", "hooks", "styling", "file_path", "output_dir", "component_pattern", "variant"],
         "returns": "component_code",
+        "capabilities": ["design_system_integration", "pattern_matching", "responsive_design", "typescript_types", "tailwind_classes", "prop_validation"],
+        "best_for": ["react_components", "tsx_files", "jsx_files", "ui_components"],
+        "advantages_over_write_file": [
+          "Applies 282+ design tokens automatically",
+          "Uses 13 component patterns from JSON",
+          "Generates proper TypeScript interfaces",
+          "Includes responsive Tailwind classes",
+          "Validates component structure",
+          "Follows React best practices"
+        ],
         "guidelines": {
           "pattern_selection": "CRITICAL: Choose component_pattern based on PURPOSE, not just name. Pattern determines the HTML structure and semantic meaning:\n  • sidebar: Navigation panels with menu items (ChatSidebar, UserSidebar, NavPanel)\n  • header: Top bars with logo, search, actions (AppHeader, ChatHeader, DashboardHeader)\n  • footer: Bottom bars with links and info (AppFooter, ChatFooter, PageFooter)\n  • messages: Chat message displays with bubbles (ChatMessageList, MessageThread, ConversationView)\n  • input: Message/chat input fields with actions (ChatInput, MessageInput, CommentBox)\n  • form: Data entry forms with fields and validation (LoginForm, SignupForm, ProfileForm)\n  • list: Vertical lists of items (UserList, ProductList, NotificationList)\n  • card: Information cards with title/description (ProductCard, ProfileCard, StatCard)\n  • button: Action buttons (CTAButton, SubmitButton, ActionButton)\n  • hero: Large hero sections (HeroSection, Banner)\n  • modal: Overlay dialogs (ConfirmModal, EditModal)\n  • feature: Feature showcases (FeatureCard, BenefitCard)\n  • pricing: Pricing cards (PricingCard, PlanCard)",
           "naming_convention": "Use PascalCase for component names. Name should reflect purpose: ChatSidebar (sidebar pattern), ChatInput (input pattern), UserList (list pattern), LoginForm (form pattern).",

@@ -8,45 +8,16 @@ import json
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
-from ..tool_schemas import ToolResult
+from ..tool_schemas import ToolResult, GenerateDesignSystemInput
 from .design_tokens import DesignTokens
+from ..utils.path_utils import PathUtils
 
 
 # ============================================================================
-# Input Schemas
+# Input Schema - Now imported from tool_schemas.py
 # ============================================================================
 
-class GenerateDesignSystemInput(BaseModel):
-    """Input for generating a complete design system"""
-    project_path: str = Field(..., description="Root path of the project")
-    framework: str = Field(
-        default="nextjs",
-        description="Framework: nextjs, react, vite"
-    )
-    include_dark_mode: bool = Field(
-        default=True,
-        description="Include dark mode support"
-    )
-    include_component_patterns: bool = Field(
-        default=True,
-        description="Generate component pattern CSS"
-    )
-    include_docs: bool = Field(
-        default=True,
-        description="Generate documentation"
-    )
-    include_layout: bool = Field(
-        default=True,
-        description="Generate Next.js layout file (for Next.js projects)"
-    )
-    css_output_path: Optional[str] = Field(
-        default=None,
-        description="Custom CSS output path (default: src/app/globals.css for Next.js)"
-    )
-    tailwind_config_path: Optional[str] = Field(
-        default=None,
-        description="Custom Tailwind config path (default: ./tailwind.config.js)"
-    )
+# Schema definition moved to tool_schemas.py to avoid circular imports
 
 
 # ============================================================================
@@ -1088,8 +1059,11 @@ async def generate_design_system(params: GenerateDesignSystemInput) -> ToolResul
     """Generate a complete design system with Tailwind config, CSS, and documentation"""
     
     try:
-        project_path = Path(params.project_path)
+        # Sanitize and validate path
+        safe_path = PathUtils.sanitize_path(params.project_path)
+        project_path = Path(safe_path)
         
+        # Check if directory exists (pathlib handles both files and dirs)
         if not project_path.exists():
             return ToolResult(
                 success=False,

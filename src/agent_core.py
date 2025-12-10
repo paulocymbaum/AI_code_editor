@@ -11,48 +11,27 @@ from dataclasses import dataclass, field
 from enum import Enum
 import time
 from pathlib import Path
-import os
-
-# Load environment variables from .env file
-from dotenv import load_dotenv
-load_dotenv()
 
 from groq import AsyncGroq
+from groq import (
+    APIError, 
+    RateLimitError, 
+    BadRequestError,
+    AuthenticationError,
+    APIConnectionError,
+    APITimeoutError
+)
 from .tool_schemas import ToolResult, TOOL_INPUT_SCHEMAS
 from . import tools
+from .task_state import (
+    TaskState, TaskPlan, TaskStatus, 
+    log_task_plan
+)
+from .utils.logging_config import AgentLogger
+from .core.config import get_settings
 
-# Configure logger with detailed formatting
-logger = logging.getLogger(__name__)
-
-def setup_logging(log_file: str = "agent_execution.log", level: int = logging.INFO):
-    """Setup detailed logging to both file and console"""
-    
-    # Create formatter
-    formatter = logging.Formatter(
-        '%(asctime)s | %(levelname)-8s | %(message)s',
-        datefmt='%H:%M:%S'
-    )
-    
-    # File handler - detailed logs
-    file_handler = logging.FileHandler(log_file, mode='w', encoding='utf-8')
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(formatter)
-    
-    # Console handler - important logs only
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(formatter)
-    
-    # Configure root logger
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG)
-    root_logger.handlers.clear()
-    root_logger.addHandler(file_handler)
-    root_logger.addHandler(console_handler)
-    
-    logger.info(f"📝 Logging configured: {log_file}")
-    
-    return log_file
+# Get logger for this module
+logger = AgentLogger.get_logger(__name__)
 
 
 class ActionType(str, Enum):
@@ -67,9 +46,13 @@ class ActionType(str, Enum):
 class AgentContext:
     """Context maintained throughout agent execution"""
     user_request: str
+    task_plan: Optional[TaskPlan] = None
+    current_task: Optional[TaskState] = None
     conversation_history: List[Dict[str, Any]] = field(default_factory=list)
     tool_results: List[ToolResult] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
+    consecutive_errors: int = 0
+    max_consecutive_errors: int = 4
     iteration: int = 0
     max_iterations: int = 10
     
@@ -83,12 +66,24 @@ class AgentContext:
     def add_tool_result(self, tool_name: str, result: ToolResult):
         """Add tool execution result"""
         self.tool_results.append(result)
-        self.add_message("assistant", f"Tool: {tool_name}\nResult: {json.dumps(result.dict(), indent=2)}")
+        self.add_message("assistant", f"Tool: {tool_name}\nResult: {json.dumps(result.model_dump(), indent=2)}")
     
     def add_error(self, error: str):
-        """Add error to context"""
+        """Add error to context and increment consecutive error counter"""
         self.errors.append(error)
+        self.consecutive_errors += 1
         self.add_message("system", f"Error: {error}")
+        logger.warning(f"⚠️  Consecutive errors: {self.consecutive_errors}/{self.max_consecutive_errors}")
+    
+    def reset_error_counter(self):
+        """Reset consecutive error counter after successful operation"""
+        if self.consecutive_errors > 0:
+            logger.info(f"✅ Resetting error counter (was {self.consecutive_errors})")
+            self.consecutive_errors = 0
+    
+    def should_stop_due_to_errors(self) -> bool:
+        """Check if we should stop due to too many consecutive errors"""
+        return self.consecutive_errors >= self.max_consecutive_errors
 
 
 @dataclass
@@ -104,15 +99,19 @@ class AgentAction:
 class AICodeAgent:
     """Main AI Coding Agent with Groq integration"""
     
-    def __init__(self, groq_api_key: Optional[str] = None, model: str = "llama-3.1-8b-instant", log_file: str = "agent_execution.log"):
-        # Setup logging first
-        setup_logging(log_file)
+    def __init__(self, groq_api_key: Optional[str] = None, model: Optional[str] = None, log_file: str = "agent_execution.log"):
+        # Setup logging first using centralized logger
+        AgentLogger.setup(log_file)
         
-        # Load API key from environment if not provided
+        # Load settings from centralized config
+        settings = get_settings()
+        
+        # Use provided values or fall back to config
         if groq_api_key is None:
-            groq_api_key = os.getenv('GROQ_API_KEY')
-            if not groq_api_key:
-                raise ValueError("GROQ_API_KEY not found in environment variables or parameters")
+            groq_api_key = settings.groq.api_key
+        
+        if model is None:
+            model = settings.groq.model
         
         logger.info(f"\n{'#'*80}")
         logger.info(f"🤖 AI CODE AGENT INITIALIZATION")
@@ -122,6 +121,7 @@ class AICodeAgent:
         
         self.client = AsyncGroq(api_key=groq_api_key)
         self.model = model
+        self.settings = settings
         
         logger.info(f"📚 Loading tool dictionary...")
         self.tool_dictionary = self._load_tool_dictionary()
@@ -143,18 +143,19 @@ class AICodeAgent:
     
     def _load_tool_dictionary(self) -> Dict[str, Any]:
         """Load tool dictionary from config file"""
-        import pathlib
+        from pathlib import Path
         
-        # Try multiple locations
-        possible_paths = [
-            pathlib.Path("config/tool_dictionary.json"),
-            pathlib.Path(__file__).parent.parent / "config" / "tool_dictionary.json",
-        ]
+        # Use config directory from settings
+        config_dir = Path(self.settings.paths.config_dir)
+        tool_dict_path = config_dir / "tool_dictionary.json"
         
-        for path in possible_paths:
-            if path.exists():
-                with open(path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+        # Fallback to relative path if config dir doesn't exist
+        if not tool_dict_path.exists():
+            tool_dict_path = Path(__file__).parent.parent / "config" / "tool_dictionary.json"
+        
+        if tool_dict_path.exists():
+            with open(tool_dict_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
         
         # Return empty dict if not found
         return {"tools": {}, "metadata": {}}
@@ -190,28 +191,377 @@ class AICodeAgent:
         return registry
 
     
-    async def plan_tasks(self, user_request: str, context: AgentContext) -> List[str]:
-        """Generate task plan from user request"""
-        system_prompt = """You are an AI coding assistant. Break down the user's request into clear, actionable subtasks.
-Return a JSON array of task descriptions."""
+    async def plan_tasks(self, user_request: str) -> TaskPlan:
+        """
+        Generate structured task plan from user request
+        Uses LLM to break down request into actionable tasks
+        """
+        logger.info(f"\n{'='*80}")
+        logger.info(f"📋 TASK PLANNING PHASE")
+        logger.info(f"{'='*80}")
+        
+        system_prompt = """You are a task planning AI for code generation. 
+Break down the user's request into specific, actionable tasks.
+
+For each task, specify:
+- name: Brief task name (e.g., "Create Header Component")
+- description: What needs to be done
+- files_expected: Array of file paths that should be created
+
+IMPORTANT: 
+- Be specific about file paths (use Next.js conventions)
+- Use demo/ as root directory
+- Follow Next.js App Router structure: demo/src/app/
+- Components go in: demo/src/app/components/
+- Store files go in: demo/src/app/store/
+
+Return ONLY valid JSON in this format:
+{
+  "tasks": [
+    {
+      "name": "Create DashboardHeader component",
+      "description": "Generate a responsive header with navigation and search",
+      "files_expected": ["demo/src/app/components/DashboardHeader.tsx"]
+    },
+    {
+      "name": "Create StatCard component", 
+      "description": "Generate a card component to display statistics",
+      "files_expected": ["demo/src/app/components/StatCard.tsx"]
+    },
+    {
+      "name": "Setup Redux store",
+      "description": "Create Redux store with slices for components",
+      "files_expected": [
+        "demo/src/app/store/store.ts",
+        "demo/src/app/store/hooks.ts",
+        "demo/src/app/store/dashboardheaderSlice.ts",
+        "demo/src/app/store/statcardSlice.ts"
+      ]
+    },
+    {
+      "name": "Create dashboard page",
+      "description": "Create the main dashboard page that uses the components",
+      "files_expected": ["demo/src/app/dashboard/page.tsx"]
+    }
+  ]
+}
+"""
         
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Request: {user_request}\n\nBreak this into subtasks."}
+            {"role": "user", "content": f"Request: {user_request}\n\nBreak this into specific tasks with exact file paths."}
         ]
         
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=0.3,
-            max_tokens=1000
-        )
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                max_tokens=2000,
+                response_format={"type": "json_object"},
+                temperature=0.3
+            )
+        except (RateLimitError, AuthenticationError, APITimeoutError, APIConnectionError, BadRequestError, APIError) as e:
+            logger.error(f"❌ API error during task planning: {str(e)}")
+            # Return a minimal task plan with single task
+            return TaskPlan(
+                tasks=[TaskState(
+                    id=1,
+                    name="Handle API Error",
+                    description=f"API error occurred: {str(e)}",
+                    status=TaskStatus.FAILED,
+                    files_expected=[]
+                )],
+                user_request=user_request,
+                created_at=time.time(),
+                project_dir="."
+            )
+        
+        content = response.choices[0].message.content or ""
+        logger.info(f"✅ Task plan generated")
         
         try:
-            tasks = json.loads(response.choices[0].message.content)
-            return tasks if isinstance(tasks, list) else [tasks]
-        except:
-            return [user_request]
+            data = json.loads(content)
+            tasks = [
+                TaskState(
+                    id=i+1,
+                    name=t["name"],
+                    description=t["description"],
+                    status=TaskStatus.PENDING,
+                    files_expected=t.get("files_expected", [])
+                )
+                for i, t in enumerate(data["tasks"])
+            ]
+            
+            task_plan = TaskPlan(
+                tasks=tasks,
+                user_request=user_request,
+                created_at=time.time(),
+                project_dir="."
+            )
+            
+            # Log the plan
+            log_task_plan(task_plan, logger)
+            
+            return task_plan
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse task plan: {e}")
+            logger.error(f"Response: {content[:200]}")
+            
+            # Fallback: create single task
+            return TaskPlan(
+                tasks=[
+                    TaskState(
+                        id=1,
+                        name="Complete user request",
+                        description=user_request,
+                        status=TaskStatus.PENDING,
+                        files_expected=[]
+                    )
+                ],
+                user_request=user_request,
+                created_at=time.time()
+            )
+    
+    async def decide_action_for_task(
+        self, 
+        context: AgentContext,
+        task: TaskState
+    ) -> AgentAction:
+        """
+        Decide which action to take for a specific task
+        Context-aware of task state and already-completed work
+        """
+        logger.info(f"\n{'='*80}")
+        logger.info(f"🧠 DECISION PHASE - Task: {task.name}")
+        logger.info(f"{'='*80}")
+        
+        # Build context with task state and progress
+        task_context = self._build_task_context(context.task_plan, task)
+        
+        # Build tool descriptions with parameter names
+        tool_descriptions = []
+        for category_name, category_tools in self.tool_dictionary.get("tools", {}).items():
+            for tool_name, tool_info in category_tools.items():
+                if tool_name in self.tool_registry:
+                    desc = tool_info.get("description", "No description")
+                    params = tool_info.get("parameters", [])
+                    params_str = ", ".join(params) if params else "no parameters"
+                    tool_descriptions.append(f"- **{tool_name}**({params_str}): {desc}")
+        
+        tools_text = "\n".join(tool_descriptions[:20])
+        
+        system_prompt = f"""You are an AI coding assistant focused on completing a specific task.
+
+Available tools:
+{tools_text}
+
+TASK-ORIENTED MODE:
+You are working on a specific task. Focus ONLY on completing THIS task.
+Do NOT work on tasks that are already done.
+Do NOT create files that already exist.
+
+{task_context}
+
+Choose the appropriate tool to complete the CURRENT task.
+If the task requires multiple steps, do ONE step and return.
+
+Return JSON in this format:
+{{
+    "type": "tool_use",
+    "tool_name": "tool_name_here",
+    "parameters": {{ ... }},
+    "message": "What you're doing",
+    "reasoning": "Why"
+}}
+
+Or to complete the task:
+{{
+    "type": "complete",
+    "message": "Task completed"
+}}
+"""
+        
+        # Build messages
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Current task: {task.name}\n{task.description}"}
+        ]
+        
+        # Add conversation history
+        messages.extend(context.conversation_history[-5:])  # Last 5 messages
+        
+        logger.info(f"🤔 Calling LLM to decide action for task: {task.name}")
+        
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                max_tokens=2000,
+                response_format={"type": "json_object"},
+                temperature=0.1
+            )
+        except (RateLimitError, AuthenticationError, APITimeoutError, APIConnectionError, BadRequestError, APIError) as e:
+            logger.error(f"❌ API error during validation decision: {str(e)}")
+            return AgentAction(
+                type=ActionType.ERROR,
+                message=f"API error: {str(e)}"
+            )
+        
+        content = response.choices[0].message.content or ""
+        logger.info(f"✅ Received response from LLM")
+        
+        # Parse action
+        try:
+            parsed = json.loads(content)
+            if isinstance(parsed, list) and len(parsed) > 0:
+                action_data = parsed[0]
+            elif isinstance(parsed, dict):
+                action_data = parsed
+            else:
+                return AgentAction(type=ActionType.ERROR, message="Invalid JSON format")
+            
+            action = AgentAction(**action_data)
+            
+            # Log decision
+            logger.info(f"\n🎯 AI DECISION:")
+            logger.info(f"   Type: {action.type}")
+            if action.tool_name:
+                logger.info(f"   Tool: {action.tool_name}")
+            if action.message:
+                logger.info(f"   Message: {action.message}")
+            if action.reasoning:
+                logger.info(f"   🧠 Reasoning: {action.reasoning}")
+            
+            return action
+        except Exception as e:
+            logger.error(f"Failed to parse action: {e}")
+            return AgentAction(type=ActionType.ERROR, message=f"Parse error: {str(e)}")
+
+    def _build_task_context(self, task_plan: Optional[TaskPlan], current_task: TaskState) -> str:
+        """Build context string with task state"""
+        
+        if not task_plan:
+            return ""
+        
+        context = f"""
+CURRENT TASK (ID: {current_task.id}):
+Name: {current_task.name}
+Description: {current_task.description}
+Expected files: {', '.join(current_task.files_expected) if current_task.files_expected else 'None'}
+
+OVERALL PROGRESS:
+"""
+        
+        status_icons = {
+            TaskStatus.DONE: "✅",
+            TaskStatus.IN_PROGRESS: "🔄",
+            TaskStatus.PENDING: "⏳",
+            TaskStatus.FAILED: "❌"
+        }
+        
+        for task in task_plan.tasks:
+            icon = status_icons.get(task.status, "❓")
+            context += f"{icon} Task {task.id}: {task.name}\n"
+            
+            if task.status == TaskStatus.DONE and task.files_verified:
+                context += f"     ✓ Files created: {', '.join(task.files_verified)}\n"
+            
+            if task.status == TaskStatus.FAILED and task.error:
+                context += f"     ✗ Error: {task.error}\n"
+        
+        return context
+
+    def update_task_state(
+        self,
+        task: TaskState,
+        action: AgentAction,
+        result: ToolResult,
+        iteration: int
+    ):
+        """
+        Update task state after tool execution with bash verification
+        """
+        logger.info(f"\n{'='*80}")
+        logger.info(f"📊 UPDATING TASK STATE")
+        logger.info(f"{'='*80}")
+        
+        task.tool_used = action.tool_name
+        
+        if not result.success:
+            task.status = TaskStatus.FAILED
+            task.error = result.error
+            logger.error(f"❌ Task '{task.name}' failed: {result.error}")
+            return
+        
+        # Extract files from result
+        files_claimed = []
+        
+        if result.data and "files_created" in result.data:
+            files_claimed = result.data["files_created"]
+        elif result.data and "component_file" in result.data:
+            files_claimed = [result.data["component_file"]]
+        elif result.data and "page_path" in result.data:
+            files_claimed = [result.data["page_path"]]
+        
+        task.files_created = files_claimed
+        
+        logger.info(f"📝 Tool claimed to create {len(files_claimed)} file(s)")
+        
+        # BASH VERIFICATION - Check files actually exist
+        logger.info(f"🔍 Verifying files with bash...")
+        
+        verification = task.verify_files_exist()
+        
+        verified_count = sum(1 for exists in verification.values() if exists)
+        total_expected = len(task.files_expected)
+        
+        logger.info(f"📊 Verification results: {verified_count}/{total_expected} files found")
+        
+        for filepath, exists in verification.items():
+            if exists:
+                logger.info(f"   ✅ {filepath}")
+            else:
+                logger.warning(f"   ❌ {filepath} - NOT FOUND")
+        
+        # Determine task status
+        if task.files_expected:
+            # Task specified expected files
+            if verified_count == total_expected:
+                task.status = TaskStatus.DONE
+                task.iteration_completed = iteration
+                logger.info(f"✅ Task '{task.name}' completed successfully")
+            elif verified_count > 0:
+                task.status = TaskStatus.FAILED
+                task.error = f"Only {verified_count}/{total_expected} files verified"
+                logger.warning(f"⚠️  Task '{task.name}' partially complete: {task.error}")
+            else:
+                task.status = TaskStatus.FAILED
+                task.error = "No expected files found on filesystem"
+                logger.error(f"❌ Task '{task.name}' failed: {task.error}")
+        else:
+            # No specific files expected, trust the tool
+            if files_claimed:
+                # Verify claimed files exist
+                claimed_verification = {
+                    f: task._bash_file_exists(f) for f in files_claimed
+                }
+                verified_claimed = sum(1 for exists in claimed_verification.values() if exists)
+                
+                if verified_claimed == len(files_claimed):
+                    task.status = TaskStatus.DONE
+                    task.files_verified = files_claimed
+                    task.iteration_completed = iteration
+                    logger.info(f"✅ Task '{task.name}' completed (verified claimed files)")
+                else:
+                    task.status = TaskStatus.FAILED
+                    task.error = f"Tool claimed files but only {verified_claimed}/{len(files_claimed)} verified"
+                    logger.warning(f"⚠️  {task.error}")
+            else:
+                # No files claimed or expected, mark done
+                task.status = TaskStatus.DONE
+                task.iteration_completed = iteration
+                logger.info(f"✅ Task '{task.name}' completed (no file outputs)")
     
     async def decide_action(self, context: AgentContext) -> AgentAction:
         """Decide next action based on context"""
@@ -273,7 +623,36 @@ Return a JSON array of task descriptions."""
                     if usage_notes:
                         tool_desc += f"  ⚠️ IMPORTANT: {usage_notes}\n"
                     
-                    # Add guidelines if available (NEW: detailed best practices)
+                    # Add capabilities (NEW: what the tool CAN do)
+                    capabilities = tool_info.get("capabilities")
+                    if capabilities:
+                        tool_desc += f"  ✅ CAPABILITIES: {', '.join(capabilities)}\n"
+                    
+                    # Add limitations (NEW: what the tool CANNOT do)
+                    limitations = tool_info.get("limitations")
+                    if limitations:
+                        tool_desc += f"  ❌ LIMITATIONS: {', '.join(limitations)}\n"
+                    
+                    # Add not_suitable_for (NEW: when NOT to use this tool)
+                    not_suitable = tool_info.get("not_suitable_for")
+                    if not_suitable:
+                        tool_desc += f"  🚫 NOT SUITABLE FOR: {', '.join(not_suitable)}\n"
+                    
+                    # Add use_instead (NEW: better alternatives)
+                    use_instead = tool_info.get("use_instead")
+                    if use_instead:
+                        tool_desc += f"  💡 USE INSTEAD:\n"
+                        for use_case, better_tool in use_instead.items():
+                            tool_desc += f"    • For {use_case}: use {better_tool}\n"
+                    
+                    # Add advantages (NEW: why use this tool)
+                    advantages = tool_info.get("advantages_over_write_file")
+                    if advantages:
+                        tool_desc += f"  🌟 ADVANTAGES:\n"
+                        for advantage in advantages:
+                            tool_desc += f"    • {advantage}\n"
+                    
+                    # Add guidelines if available (detailed best practices)
                     guidelines = tool_info.get("guidelines")
                     if guidelines:
                         tool_desc += "\n  📋 CRITICAL GUIDELINES:\n"
@@ -300,122 +679,62 @@ Return a JSON array of task descriptions."""
 Available tools with examples:
 {tools_text}
 
+🚨 CRITICAL TOOL SELECTION RULES 🚨
+
+ALWAYS use specialized tools over generic ones:
+┌─────────────────────────────────────────────────────────────┐
+│ FILE TYPE            │ ❌ WRONG TOOL      │ ✅ CORRECT TOOL  │
+├─────────────────────────────────────────────────────────────┤
+│ React Components     │ write_file         │ generate_react_component │
+│ (.tsx, .jsx)         │                    │ (with design tokens!)    │
+├─────────────────────────────────────────────────────────────┤
+│ Next.js Pages        │ write_file         │ generate_page_with_components │
+│                      │                    │ (creates all components!)     │
+├─────────────────────────────────────────────────────────────┤
+│ Config Files         │ generate_react_*   │ write_file       │
+│ (.json, .yml, .env)  │                    │                  │
+└─────────────────────────────────────────────────────────────┘
+
+WHY? Specialized tools provide:
+✅ Design system integration (282+ tokens from config/design-tokens.json)
+✅ Component patterns (13 patterns from config/component_patterns.json)
+✅ Proper TypeScript types with validation
+✅ Responsive Tailwind CSS classes (mobile-first)
+✅ React best practices and hooks
+✅ Automatic prop interfaces
+
+⚠️ write_file LIMITATIONS:
+• NO design tokens applied
+• NO component patterns
+• NO TypeScript type generation
+• NO responsive design
+• NO validation
+• Just raw text → file
+
 CRITICAL PARAMETER RULES:
 1. generate_react_component uses "component_name" NOT "name"
-2. generate_react_component uses "component_pattern" NOT "pattern"  
-3. generate_page_with_components ALWAYS REQUIRES 3 parameters:
+2. generate_react_component uses "component_pattern" NOT "pattern"
+3. component_pattern is MANDATORY - must be one of: sidebar, header, footer, messages, input, card, button, form, modal, list, hero, feature, pricing
+4. generate_page_with_components ALWAYS REQUIRES 3 parameters:
    - "page_name": string (e.g., "Home", "Dashboard")
    - "page_path": string (full file path like "./demo/src/app/page.tsx")
    - "components": array of dicts with "name", "pattern", "variant"
-4. generate_page_with_components DOES NOT use "output_dir"
 5. Always use relative paths starting with "./" like "./demo/src/components"
 6. Component names must be PascalCase: "ProductCard" not "product-card"
-7. ⚠️ CRITICAL: For Redux state management, use "generate_redux_setup" NOT "generate_redux_store"
-   - This tool is ONLY called AFTER components are generated
-   - It automatically creates Redux slices based on component prop schemas
 
-⚠️ CRITICAL: COMPONENT PATTERN SELECTION
-Pattern field is MANDATORY and must match component purpose:
-- sidebar: Navigation panels → ChatSidebar, UserSidebar, NavPanel
-- header: Top bars → AppHeader, ChatHeader, PageHeader
-- footer: Bottom bars → AppFooter, PageFooter
-- messages: Message displays → ChatMessageList, MessageThread
-- input: Input fields → ChatInput, MessageInput, SearchBar
-- form: Data entry → LoginForm, SignupForm, SettingsForm
-- list: Item lists → UserList, ProductList, NotificationList
-- card: Info cards → ProductCard, ProfileCard, StatCard
-- button: Action buttons → CTAButton, SubmitButton
-- hero: Hero sections → HeroSection, Banner
-- modal: Dialogs → ConfirmModal, EditModal
-- feature: Features → FeatureCard, BenefitSection
-- pricing: Pricing → PricingCard, PlanCard
+⚠️ COMPONENT PATTERN SELECTION:
+Match pattern to component PURPOSE (not just name):
+- ChatSidebar → sidebar pattern ✅ (NOT card ❌)
+- LoginForm → form pattern ✅ (NOT card ❌)
+- DashboardHeader → header pattern ✅ (NOT card ❌)
+- StatCard → card pattern ✅
+- UserList → list pattern ✅ (NOT card ❌)
 
-WRONG: {{"name": "ChatSidebar", "pattern": "card"}}  ❌
-RIGHT: {{"name": "ChatSidebar", "pattern": "sidebar"}} ✅
+RESPONSIVE DESIGN: All components MUST be mobile-first responsive (320px+, 768px+, 1024px+) using Tailwind prefixes (sm:, md:, lg:, xl:).
 
-WRONG: {{"name": "LoginForm", "pattern": "card"}}  ❌
-RIGHT: {{"name": "LoginForm", "pattern": "form"}} ✅
-
-RESPONSIVE DESIGN REQUIREMENTS:
-- ALL components MUST be responsive for mobile (320px+), tablet (768px+), and desktop (1024px+)
-- Use Tailwind responsive prefixes: sm:, md:, lg:, xl:
-- Mobile-first approach: base styles for mobile, then add breakpoints
-- Components should stack vertically on mobile, side-by-side on larger screens
-- Text sizes should scale appropriately (text-sm on mobile, text-base/lg on desktop)
-- Padding and spacing should be responsive (p-4 sm:p-6 lg:p-8)
-- Images and media should be fluid width (w-full) with max-width constraints
-
-JSON RESPONSE FORMAT (respond with ONLY valid JSON, no markdown):
-⚠️ CRITICAL: Return a SINGLE JSON OBJECT, NOT an array. Only ONE action per response.
-❌ WRONG: [{{"type": "tool_use", ...}}, {{"type": "tool_use", ...}}]
+JSON RESPONSE FORMAT:
+⚠️ Return a SINGLE JSON OBJECT, NOT an array. Only ONE action per response.
 ✅ CORRECT: {{"type": "tool_use", "tool_name": "...", "parameters": {{...}}}}
-
-EXAMPLE 1 - Chat Interface with correct patterns:
-{{
-    "type": "tool_use",
-    "tool_name": "generate_page_with_components",
-    "parameters": {{
-        "page_name": "chat",
-        "page_path": "./demo/src/app/chat/page.tsx",
-        "components": [
-            {{"name": "ChatSidebar", "pattern": "sidebar", "variant": "primary"}},
-            {{"name": "ChatHeader", "pattern": "header", "variant": "secondary"}},
-            {{"name": "MessageList", "pattern": "messages", "variant": "primary"}},
-            {{"name": "ChatInput", "pattern": "input", "variant": "primary"}},
-            {{"name": "ChatFooter", "pattern": "footer", "variant": "secondary"}}
-        ],
-        "layout_type": "chat"
-    }},
-    "message": "Generating chat interface with semantic patterns",
-    "reasoning": "Using sidebar pattern for navigation, header/footer for top/bottom bars, messages for chat display, input for message entry"
-}}
-
-EXAMPLE 2 - Dashboard with correct patterns:
-{{
-    "type": "tool_use",
-    "tool_name": "generate_page_with_components",
-    "parameters": {{
-        "page_name": "dashboard",
-        "page_path": "./demo/src/app/dashboard/page.tsx",
-        "components": [
-            {{"name": "DashboardHeader", "pattern": "header", "variant": "primary"}},
-            {{"name": "MetricCard", "pattern": "card", "variant": "primary"}},
-            {{"name": "ActivityList", "pattern": "list", "variant": "secondary"}},
-            {{"name": "FilterForm", "pattern": "form", "variant": "secondary"}}
-        ],
-        "layout_type": "dashboard"
-    }},
-    "message": "Generating dashboard with appropriate patterns",
-    "reasoning": "Header for page title, cards for metrics, list for activities, form for filters"
-}}
-
-EXAMPLE 3 - Single component generation:
-{{
-    "type": "tool_use",
-    "tool_name": "generate_react_component",
-    "parameters": {{
-        "component_name": "UserSidebar",
-        "component_pattern": "sidebar",
-        "variant": "primary",
-        "styling": "tailwind",
-        "output_dir": "./demo/src/components"
-    }},
-    "message": "Generating ProductCard component",
-    "reasoning": "Need to create the card component for products"
-}}
-
-EXAMPLE 4 - Redux setup (ONLY after components exist):
-{{
-    "type": "tool_use",
-    "tool_name": "generate_redux_setup",
-    "parameters": {{
-        "components": [],
-        "output_dir": "./demo/src/store",
-        "store_name": "store"
-    }},
-    "message": "Setting up Redux store",
-    "reasoning": "Creating Redux state management after components are ready"
-}}
 
 For completing:
 {{
@@ -424,9 +743,9 @@ For completing:
 }}
 
 CRITICAL RULES:
-1. ALWAYS use tools to accomplish tasks - don't just plan
+1. ALWAYS use specialized tools for React components (never write_file!)
 2. Use exact parameter names from examples above
-3. Check examples before using a tool
+3. Check tool descriptions and guidelines before using
 4. For multi-step tasks, do ONE step at a time, then continue
 5. Respond with ONLY valid JSON, no markdown code blocks
 6. NEVER use "complete" until ALL steps are done - keep iterating
@@ -441,18 +760,88 @@ CRITICAL RULES:
         logger.info(f"📝 Sending {len(messages)} messages to model: {self.model}")
         logger.debug(f"� Last user message: {context.conversation_history[-1].get('content', '')[:200]}...")
         
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=0.1,
-            max_tokens=2000,
-            response_format={"type": "json_object"}
-        )
-        
-        logger.info(f"✅ Received response from LLM")
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=0.1,
+                max_tokens=2000,
+                response_format={"type": "json_object"}
+            )
+            
+            logger.info(f"✅ Received response from LLM")
+            
+        except RateLimitError as e:
+            error_details = {
+                'type': 'RateLimitError',
+                'message': str(e),
+                'status_code': getattr(e, 'status_code', None),
+                'headers': getattr(e, 'headers', None)
+            }
+            logger.error(f"❌ Rate limit exceeded: {str(e)}")
+            logger.error(f"   Status: {error_details.get('status_code')}")
+            logger.error(f"   Retry after: {error_details.get('headers', {}).get('retry-after', 'unknown')}")
+            return AgentAction(
+                type=ActionType.ERROR,
+                message=f"Rate limit exceeded. Please wait and try again. Details: {str(e)}"
+            )
+        except AuthenticationError as e:
+            logger.error(f"❌ Authentication failed: {str(e)}")
+            logger.error(f"   Check your GROQ_API_KEY environment variable or config/settings.yaml")
+            logger.error(f"   Status code: {getattr(e, 'status_code', 'unknown')}")
+            return AgentAction(
+                type=ActionType.ERROR,
+                message=f"API authentication failed. Check your Groq API key. Details: {str(e)}"
+            )
+        except APITimeoutError as e:
+            logger.error(f"❌ API timeout: {str(e)}")
+            logger.error(f"   Request took too long to complete")
+            logger.error(f"   Consider increasing timeout or retrying")
+            return AgentAction(
+                type=ActionType.ERROR,
+                message=f"Groq API request timed out. Try again. Details: {str(e)}"
+            )
+        except APIConnectionError as e:
+            logger.error(f"❌ API connection error: {str(e)}")
+            logger.error(f"   Check your internet connection")
+            logger.error(f"   Verify Groq API is accessible (https://api.groq.com)")
+            return AgentAction(
+                type=ActionType.ERROR,
+                message=f"Failed to connect to Groq API. Check your internet connection. Details: {str(e)}"
+            )
+        except BadRequestError as e:
+            logger.error(f"❌ Bad request: {str(e)}")
+            logger.error(f"   Status code: {getattr(e, 'status_code', 'unknown')}")
+            logger.error(f"   Response: {getattr(e, 'response', 'no response')}")
+            return AgentAction(
+                type=ActionType.ERROR,
+                message=f"Invalid request to Groq API. Details: {str(e)}"
+            )
+        except APIError as e:
+            logger.error(f"❌ Groq API error: {str(e)}")
+            logger.error(f"   Error type: {type(e).__name__}")
+            logger.error(f"   Status code: {getattr(e, 'status_code', 'unknown')}")
+            logger.error(f"   Check Groq API status: https://status.groq.com")
+            return AgentAction(
+                type=ActionType.ERROR,
+                message=f"Groq API error: {str(e)}"
+            )
+        except Exception as e:
+            logger.error(f"❌ Unexpected error calling LLM: {str(e)}", exc_info=True)
+            logger.error(f"   Error type: {type(e).__name__}")
+            return AgentAction(
+                type=ActionType.ERROR,
+                message=f"Unexpected error: {str(e)}"
+            )
         
         try:
             content = response.choices[0].message.content
+            if content is None:
+                logger.error(f"❌ LLM returned None content")
+                return AgentAction(
+                    type=ActionType.ERROR,
+                    message="LLM returned empty response"
+                )
             logger.info(f"\n� LLM RESPONSE (Raw):")
             logger.info(f"{'-'*80}")
             logger.info(f"{content[:500]}...")
@@ -588,195 +977,251 @@ CRITICAL RULES:
             "content": "Please provide a summary of what was accomplished."
         })
         
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=0.5,
-            max_tokens=2000
-        )
-        
-        return response.choices[0].message.content
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=0.5,
+                max_tokens=2000
+            )
+            
+            content = response.choices[0].message.content
+            return content if content else "Summary generation failed - no content returned"
+            
+        except (RateLimitError, AuthenticationError, APITimeoutError, APIConnectionError, BadRequestError, APIError) as e:
+            logger.error(f"❌ API error during response synthesis: {str(e)}")
+            return f"Unable to generate summary due to API error: {str(e)}"
+        except Exception as e:
+            logger.error(f"❌ Unexpected error during response synthesis: {str(e)}")
+            return f"Unable to generate summary due to unexpected error: {str(e)}"
     
     async def execute(self, user_request: str, max_iterations: int = 10) -> Dict[str, Any]:
-        """Main execution loop"""
+        """
+        Execute user request with task-based state management
+        """
         logger.info(f"\n{'#'*80}")
         logger.info(f"🚀 AGENT EXECUTION START")
         logger.info(f"{'#'*80}")
-        logger.info(f"📋 User Request: {user_request[:200]}...")
+        logger.info(f"📋 User Request: {user_request[:100]}...")
         logger.info(f"⚙️  Max Iterations: {max_iterations}")
         
+        # Initialize context
         context = AgentContext(
             user_request=user_request,
             max_iterations=max_iterations
         )
         
-        # Add initial user request
-        context.add_message("user", user_request)
-        
-        # Plan tasks
-        print(f"\n🎯 Planning tasks...")
-        logger.info(f"\n{'='*80}")
-        logger.info(f"📋 TASK PLANNING PHASE")
-        logger.info(f"{'='*80}")
-        task_plan = await self.plan_tasks(user_request, context)
-        print(f"📋 Task Plan: {json.dumps(task_plan, indent=2)}")
-        logger.info(f"✅ Task Plan Generated: {json.dumps(task_plan, indent=2)}")
-        context.add_message("assistant", f"Task plan: {json.dumps(task_plan, indent=2)}")
-        
-        # Execution loop
-        print(f"\n🚀 Starting execution loop (max {max_iterations} iterations)...\n")
-        logger.info(f"\n{'='*80}")
-        logger.info(f"🔄 EXECUTION LOOP START")
-        logger.info(f"{'='*80}")
-        
-        # Track tool usage to detect loops
-        tool_usage_history = []
-        
-        while context.iteration < context.max_iterations:
-            context.iteration += 1
-            print(f"\n{'='*80}")
-            print(f"ITERATION {context.iteration}/{context.max_iterations}")
-            print(f"{'='*80}")
+        try:
+            # 1. Generate task plan
+            task_plan = await self.plan_tasks(user_request)
+            context.task_plan = task_plan
             
-            # Decide next action
-            print(f"\n🤔 Deciding next action...")
-            action = await self.decide_action(context)
-            print(f"📌 Action Type: {action.type}")
+            # 2. Execute tasks iteratively
+            logger.info(f"\n{'='*80}")
+            logger.info(f"🔄 TASK EXECUTION LOOP START")
+            logger.info(f"{'='*80}\n")
             
-            if action.type == ActionType.COMPLETE:
-                print(f"✅ COMPLETE: {action.message}")
-                break
-            
-            elif action.type == ActionType.TOOL_USE:
-                if action.tool_name and action.parameters:
-                    print(f"\n🔧 Using Tool: {action.tool_name}")
-                    print(f"💬 Message: {action.message}")
-                    print(f"📝 Parameters: {json.dumps(action.parameters, indent=2)}")
-                    
-                    # Track tool usage for loop detection
-                    tool_usage_history.append(action.tool_name)
-                    
-                    # HALLUCINATION DETECTION: Check for infinite loops
-                    if len(tool_usage_history) >= 5:
-                        recent_5 = tool_usage_history[-5:]
-                        # If same tool called 5 times in a row, STOP
-                        if len(set(recent_5)) == 1:
-                            error_msg = f"🚨 INFINITE LOOP DETECTED! Tool '{action.tool_name}' called 5 times consecutively. Stopping execution."
-                            logger.error(error_msg)
-                            print(f"\n❌ {error_msg}")
-                            context.add_error(error_msg)
-                            break
+            while context.iteration < max_iterations:
+                context.iteration += 1
+                
+                # Get next task
+                current_task = task_plan.get_next_task()
+                if not current_task:
+                    logger.info(f"✅ All tasks completed or no more retryable tasks")
+                    break
+                
+                context.current_task = current_task
+                
+                # Log iteration start
+                logger.info(f"\n{'='*80}")
+                logger.info(f"🔄 ITERATION {context.iteration}")
+                logger.info(f"{'='*80}")
+                logger.info(f"🎯 Current Task: {current_task.name}")
+                logger.info(f"📝 Description: {current_task.description}")
+                if current_task.files_expected:
+                    logger.info(f"� Expected files:")
+                    for f in current_task.files_expected:
+                        logger.info(f"   - {f}")
+                if current_task.retry_count > 0:
+                    logger.info(f"🔄 Retry attempt: {current_task.retry_count}/{current_task.max_retries}")
+                
+                # Mark task as in progress
+                current_task.status = TaskStatus.IN_PROGRESS
+                current_task.iteration_started = context.iteration
+                
+                # Decide action for this specific task
+                action = await self.decide_action_for_task(context, current_task)
+                
+                if action.type == ActionType.COMPLETE:
+                    # Task says it's complete, verify it
+                    verified = current_task.verify_completion()
+                    if verified:
+                        current_task.status = TaskStatus.DONE
+                        current_task.iteration_completed = context.iteration
+                        logger.info(f"✅ Task verified and marked complete")
+                        # Reset error counter on successful verification
+                        context.reset_error_counter()
+                    else:
+                        current_task.status = TaskStatus.FAILED
+                        error_msg = f"Task '{current_task.name}' claims complete but verification failed"
+                        logger.warning(f"⚠️  {error_msg}")
+                        context.add_error(error_msg)
                         
-                        # If alternating between 2 tools, also suspicious
-                        if len(set(recent_5)) == 2 and len(recent_5) == 5:
-                            logger.warning(f"⚠️  Possible loop detected: alternating between {set(recent_5)}")
+                        # Check if we should stop due to consecutive errors (AI hallucinating)
+                        if context.should_stop_due_to_errors():
+                            logger.error(f"\n{'='*80}")
+                            logger.error(f"🛑 STOPPING: {context.consecutive_errors} consecutive validation failures")
+                            logger.error(f"{'='*80}")
+                            logger.error(f"Recent errors:")
+                            for i, error in enumerate(context.errors[-4:], 1):
+                                logger.error(f"  {i}. {error}")
+                            logger.error(f"{'='*80}\n")
+                            
+                            current_task.error = f"Stopped after {context.consecutive_errors} consecutive validation failures"
+                            break
+                    continue
+                
+                # Check for API errors
+                if action.type == ActionType.ERROR:
+                    error_msg = action.message or "Unknown error"
+                    logger.error(f"❌ Action returned ERROR: {error_msg}")
+                    context.add_error(error_msg)
+                    current_task.error = f"Action error: {error_msg}"
                     
-                    # Execute tool
-                    print(f"⚙️  Executing...")
+                    # Check if we should stop due to consecutive errors
+                    if context.should_stop_due_to_errors():
+                        logger.error(f"\n{'='*80}")
+                        logger.error(f"🛑 STOPPING: {context.consecutive_errors} consecutive errors")
+                        logger.error(f"{'='*80}")
+                        logger.error(f"Recent errors:")
+                        for i, error in enumerate(context.errors[-4:], 1):
+                            logger.error(f"  {i}. {error}")
+                        logger.error(f"{'='*80}\n")
+                        
+                        # Mark task as failed
+                        current_task.status = TaskStatus.FAILED
+                        current_task.error = f"Stopped after {context.consecutive_errors} consecutive errors"
+                        
+                        break
+                    
+                    continue
+                
+                # Execute tool
+                if action.tool_name and action.parameters:
                     result = await self.execute_tool(action.tool_name, action.parameters)
                     
-                    if result.success:
-                        print(f"✅ SUCCESS!")
-                        if result.data:
-                            print(f"📦 Data: {json.dumps(result.data, indent=2)[:500]}")
-                    else:
-                        print(f"❌ FAILED: {result.error}")
+                    # Update task state based on result (includes file verification)
+                    self.update_task_state(current_task, action, result, context.iteration)
                     
+                    # Add to context
                     context.add_tool_result(action.tool_name, result)
                     
-                    # HALLUCINATION CHECK: Did the tool actually create what it claimed?
-                    if result.success and action.tool_name in ['generate_page_with_components', 'generate_react_component']:
-                        files_created = result.data.get('files_created', []) if result.data else []
-                        component_file = result.data.get('component_file', '') if result.data else ''
-                        
-                        if not files_created and not component_file:
-                            logger.warning(f"⚠️  HALLUCINATION WARNING: {action.tool_name} reported success but no files were created!")
-                            print(f"⚠️  WARNING: Tool claimed success but no files created!")
-                    
-                    # Handle errors with retry logic
-                    if not result.success and context.iteration < context.max_iterations:
+                    # Check if tool execution AND verification succeeded
+                    if result.success and current_task.status == TaskStatus.DONE:
+                        # Both tool execution and file verification succeeded
+                        context.reset_error_counter()
+                    elif not result.success:
+                        # Tool execution failed
                         context.add_error(f"Tool {action.tool_name} failed: {result.error}")
+                        
+                        # Check if we should stop due to consecutive errors
+                        if context.should_stop_due_to_errors():
+                            logger.error(f"\n{'='*80}")
+                            logger.error(f"🛑 STOPPING: {context.consecutive_errors} consecutive errors")
+                            logger.error(f"{'='*80}")
+                            logger.error(f"Recent errors:")
+                            for i, error in enumerate(context.errors[-4:], 1):
+                                logger.error(f"  {i}. {error}")
+                            logger.error(f"{'='*80}\n")
+                            
+                            # Mark task as failed
+                            current_task.status = TaskStatus.FAILED
+                            current_task.error = f"Stopped after {context.consecutive_errors} consecutive errors"
+                            
+                            break
+                    elif current_task.status == TaskStatus.FAILED:
+                        # Tool succeeded but verification failed (files not found)
+                        error_msg = current_task.error or "File verification failed"
+                        context.add_error(f"Verification failed for {action.tool_name}: {error_msg}")
+                        
+                        # Check if we should stop due to consecutive verification failures
+                        if context.should_stop_due_to_errors():
+                            logger.error(f"\n{'='*80}")
+                            logger.error(f"🛑 STOPPING: {context.consecutive_errors} consecutive verification failures")
+                            logger.error(f"{'='*80}")
+                            logger.error(f"Recent errors:")
+                            for i, error in enumerate(context.errors[-4:], 1):
+                                logger.error(f"  {i}. {error}")
+                            logger.error(f"{'='*80}\n")
+                            
+                            current_task.error = f"Stopped after {context.consecutive_errors} consecutive verification failures"
+                            
+                            break
+                
+                # Log progress
+                progress = task_plan.get_progress()
+                completion = task_plan.get_completion_percentage()
+                logger.info(f"\n📊 Overall Progress: {progress['done']}/{progress['total']} ({completion:.1f}%)")
+                
+                # Check if we're done
+                if task_plan.is_complete():
+                    logger.info(f"🎉 All tasks completed and verified!")
+                    break
             
-            elif action.type == ActionType.CLARIFY:
-                print(f"❓ CLARIFY: {action.message}")
-                context.add_message("assistant", action.message or "Need clarification")
-                break
+            # 3. Final verification
+            logger.info(f"\n{'='*80}")
+            logger.info(f"🔍 FINAL VERIFICATION")
+            logger.info(f"{'='*80}")
             
-            elif action.type == ActionType.ERROR:
-                print(f"❌ ERROR: {action.message}")
-                context.add_error(action.message or "Unknown error")
-                break
-        
-        # Generate final response
-        logger.info(f"\n{'='*80}")
-        logger.info(f"📝 SYNTHESIZING FINAL RESPONSE")
-        logger.info(f"{'='*80}")
-        final_response = await self.synthesize_response(context)
-        
-        # Generate execution summary
-        logger.info(f"\n{'#'*80}")
-        logger.info(f"📊 EXECUTION SUMMARY")
-        logger.info(f"{'#'*80}")
-        logger.info(f"✅ Success: {len(context.errors) == 0}")
-        logger.info(f"🔄 Iterations: {context.iteration}/{max_iterations}")
-        logger.info(f"🔧 Tools executed: {len(context.tool_results)}")
-        logger.info(f"❌ Errors: {len(context.errors)}")
-        
-        # Log tool breakdown
-        tool_counts = {}
-        files_created_all = []
-        for tr in context.tool_results:
-            tool_name = tr.metadata.get('tool_name', 'unknown')
-            tool_counts[tool_name] = tool_counts.get(tool_name, 0) + 1
+            verification = task_plan.verify_all_tasks()
+            failed_verifications = [task_id for task_id, verified in verification.items() if not verified]
             
-            # Collect all files created
-            if tr.data:
-                if 'files_created' in tr.data:
-                    files_created_all.extend(tr.data['files_created'])
-                if 'component_file' in tr.data:
-                    files_created_all.append(tr.data['component_file'])
-        
-        logger.info(f"\n📋 Tool Usage Breakdown:")
-        for tool_name, count in sorted(tool_counts.items(), key=lambda x: x[1], reverse=True):
-            logger.info(f"   {tool_name}: {count} times")
-        
-        logger.info(f"\n📁 Total Files Created: {len(files_created_all)}")
-        for f in files_created_all[:20]:  # Show first 20
-            logger.info(f"   - {f}")
-        
-        if context.errors:
-            logger.error(f"\n❌ Errors Encountered:")
-            for i, err in enumerate(context.errors, 1):
-                logger.error(f"   {i}. {err}")
-        
-        # HALLUCINATION ANALYSIS
-        logger.info(f"\n🔍 HALLUCINATION ANALYSIS:")
-        
-        # Check if agent claimed completion without doing work
-        if context.iteration < 3 and len(context.tool_results) < 2:
-            logger.warning(f"⚠️  POSSIBLE HALLUCINATION: Agent completed in {context.iteration} iterations with only {len(context.tool_results)} tool calls")
-        
-        # Check if tools were called but no files created
-        component_tools = [tr for tr in context.tool_results if tr.metadata.get('tool_name') in ['generate_page_with_components', 'generate_react_component']]
-        if component_tools and not files_created_all:
-            logger.error(f"🚨 HALLUCINATION DETECTED: {len(component_tools)} component generation tools called but NO files created!")
-        
-        # Check for repetitive tool calls (same tool >3 times)
-        for tool_name, count in tool_counts.items():
-            if count > 3:
-                logger.warning(f"⚠️  Tool '{tool_name}' called {count} times - possible stuck loop")
-        
-        logger.info(f"\n{'#'*80}\n")
-        
-        return {
-            "success": len(context.errors) == 0,
-            "response": final_response,
-            "iterations": context.iteration,
-            "tool_results": [r.dict() for r in context.tool_results],
-            "errors": context.errors,
-            "tool_usage": tool_counts,
-            "files_created": files_created_all
-        }
+            if failed_verifications:
+                logger.warning(f"⚠️  {len(failed_verifications)} tasks failed final verification")
+                for task_id in failed_verifications:
+                    task = next(t for t in task_plan.tasks if t.id == task_id)
+                    logger.warning(f"   Task {task_id}: {task.name} - {task.error}")
+            else:
+                logger.info(f"✅ All completed tasks verified successfully")
+            
+            # 4. Summary
+            logger.info(f"\n{'#'*80}")
+            logger.info(f"📊 EXECUTION SUMMARY")
+            logger.info(f"{'#'*80}")
+            
+            log_task_plan(task_plan, logger)
+            
+            files_created = task_plan.get_files_created()
+            logger.info(f"� Total files created and verified: {len(files_created)}")
+            for f in files_created:
+                logger.info(f"   ✓ {f}")
+            
+            logger.info(f"🔄 Iterations used: {context.iteration}/{max_iterations}")
+            logger.info(f"{'#'*80}\n")
+            
+            # Build response message
+            if task_plan.is_complete():
+                response_msg = f"Successfully completed all {len(task_plan.tasks)} tasks. Created {len(files_created)} files."
+            else:
+                completed = len([t for t in task_plan.tasks if t.status == TaskStatus.DONE])
+                response_msg = f"Completed {completed}/{len(task_plan.tasks)} tasks."
+            
+            return {
+                "success": task_plan.is_complete(),
+                "response": response_msg,
+                "task_plan": task_plan.to_dict(),
+                "iterations": context.iteration,
+                "files_created": files_created,
+                "actions_taken": [tr.metadata.get("tool_name") for tr in context.tool_results]
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Agent execution failed: {str(e)}", exc_info=True)
+            return {
+                "success": False,
+                "error": str(e),
+                "iterations": context.iteration
+            }
 
 
 async def main():

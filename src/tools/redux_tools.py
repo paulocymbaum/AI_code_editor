@@ -6,27 +6,14 @@ import pathlib
 import re
 from typing import Dict, List, Any, Optional
 from pydantic import BaseModel, Field
-from ..tool_schemas import ToolResult
+from ..tool_schemas import ToolResult, ComponentSchema, GenerateReduxSetupInput
 
 
-class ComponentSchema(BaseModel):
-    """Schema for a component's props"""
-    name: str
-    props: Dict[str, Any] = Field(default_factory=dict)
+# ============================================================================
+# Input Schemas - Now imported from tool_schemas.py
+# ============================================================================
 
-
-class GenerateReduxSetupInput(BaseModel):
-    """Input for generating Redux store setup"""
-    components: List[ComponentSchema] = Field(
-        description="List of component schemas with their props"
-    )
-    output_dir: str = Field(
-        description="Directory to create Redux files (typically demo/src/store)"
-    )
-    store_name: str = Field(
-        default="store",
-        description="Name of the store file"
-    )
+# Schema definitions moved to tool_schemas.py to avoid circular imports
 
 
 def _generate_mock_data(prop_type: str, prop_name: str) -> Any:

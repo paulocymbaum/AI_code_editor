@@ -126,6 +126,9 @@ class HealthCheckRunner:
         # Define test modules
         test_modules = [
             ("test_tool_schemas.py", "Tool Schema Validation"),
+            ("test_parameter_consistency.py", "Parameter Name Consistency"),
+            ("test_import_consistency.py", "Import Consistency & Validation"),
+            ("test_file_path_handling.py", "File Path Handling Tests"),
             ("test_tool_registry.py", "Tool Registry & Imports"),
             ("test_tool_execution.py", "Tool Execution Tests"),
             ("test_agent_core.py", "Agent Core Functionality"),

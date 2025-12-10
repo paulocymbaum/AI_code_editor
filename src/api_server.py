@@ -7,12 +7,16 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
-import os
 import uuid
 
 from .agent_core import AICodeAgent
 from .memory_manager import MemoryManager
+from .core.config import get_settings
+from .utils.logging_config import AgentLogger
 
+# Setup logging
+AgentLogger.setup("api_server.log")
+logger = AgentLogger.get_logger(__name__)
 
 app = FastAPI(
     title="AI Coding Agent API",
@@ -29,9 +33,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize agent
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-agent = AICodeAgent(groq_api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+# Load settings and initialize agent
+settings = get_settings()
+logger.info("Initializing AI Agent...")
+try:
+    agent = AICodeAgent()
+    logger.info("✅ Agent initialized successfully")
+except Exception as e:
+    logger.error(f"❌ Failed to initialize agent: {e}")
+    agent = None
+
 memory_manager = MemoryManager()
 
 
@@ -67,10 +78,11 @@ class HealthResponse(BaseModel):
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint"""
+    settings = get_settings()
     return HealthResponse(
         status="healthy",
         version="1.0.0",
-        groq_configured=GROQ_API_KEY is not None
+        groq_configured=bool(settings.groq.api_key)
     )
 
 
@@ -112,7 +124,7 @@ async def execute_tool(request: ToolExecuteRequest):
         raise HTTPException(status_code=500, detail="Agent not initialized")
     
     result = await agent.execute_tool(request.tool_name, request.parameters)
-    return result.dict()
+    return result.model_dump()
 
 
 @app.get("/tools")
